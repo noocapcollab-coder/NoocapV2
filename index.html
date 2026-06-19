@@ -83,6 +83,19 @@
   .stage{flex:0 0 196px}
   .stagehead{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.02em;padding:5px 10px;border-radius:8px;margin-bottom:9px}
   .stagehead .sc{margin-left:auto;font-weight:600;opacity:.85}
+  .stage{border-radius:12px;transition:background .12s,box-shadow .12s}
+  .stage.dragover{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
+  .stbody{min-height:30px}
+  .stbody.thin{min-height:30px;border:1.2px dashed transparent;border-radius:10px}
+  .card[draggable=true]{cursor:grab}
+  .card.dragging{opacity:.45}
+  .card .mv{margin-left:6px;font-size:10.5px;color:var(--faint);cursor:pointer;border:0.5px solid var(--line);border-radius:6px;padding:1px 6px;background:var(--surface)}
+  .card .mv:hover{color:var(--accent);border-color:var(--accent)}
+  .mvmenu{position:fixed;z-index:60;background:var(--bg);border:0.5px solid var(--line2);border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4);padding:6px;min-width:150px}
+  .mvmenu .mi{padding:8px 11px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px}
+  .mvmenu .mi:hover{background:var(--surface)}
+  .mvmenu .mi .dot{width:8px;height:8px;border-radius:50%}
+  .mvmenu .mi.head{color:var(--faint);font-size:11px;cursor:default;padding:4px 11px 6px}
   /* weekly band */
   .wkbar{display:flex;align-items:center;gap:11px;margin:2px 2px 16px;flex-wrap:wrap}
   .wkbar .lab{color:var(--faint);font-size:13px}
@@ -190,9 +203,9 @@ const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,demo:false,lastOk:0};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
-async function loadAll(){
+async function loadAll(fresh){
   let okAny=false,err=null;
-  try{const d=await getJSON("/api/data");state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
+  try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
   try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;okAny=true;}catch(e){err=err||e;}
   if(!okAny){ if(!state.demo) loadDemo(); showBanner("Preview mode — showing a baked snapshot of the Jun 15–20 plan. Deploy to Vercel with your NOTION_TOKEN and every view goes live."); }
   else{ state.demo=false; hideBanner(); state.lastOk=Date.now(); }
@@ -223,42 +236,122 @@ function activeByCreator(){
   }
   return [...map.entries()].sort((a,b)=>orderIdx(a[0])-orderIdx(b[0]));
 }
-const STAGE_ORDER=["Idea","Scripting","Filming","Editing","Review","Ready"];
+const COLS=["Film","Edit","Changes","Ready"];
+const CT={Film:["#EEF2FB","#36568f"],Edit:["#FBEAF0","#993556"],Changes:["#FAEEDA","#854f0b"],Ready:["#EAF3DE","#3b6d11"]};
+const HIDE_CREATORS=new Set(["CINDY","CINDAY"]);
+function colOf(raw){
+  const s=(raw||"").toLowerCase();const m=s.match(/(\d{1,2})\s*-/);const n=m?+m[1]:null;
+  if(n===6||/to film/.test(s))return"Film";
+  if(n===7||/in edit/.test(s))return"Edit";
+  if(n===8||/changes/.test(s))return"Changes";
+  if(n===11||/^ready|11/.test(s)||/\bready\b/.test(s))return"Ready";
+  return null;
+}
+function boardByCreator(){
+  const map=new Map();
+  for(const v of state.pipeline){
+    if(!v.creator||HIDE_CREATORS.has(String(v.creator).toUpperCase()))continue;
+    const col=colOf(v.rawStatus); if(!col)continue;
+    const k=pretty(v.creator);
+    if(!map.has(k))map.set(k,{Film:[],Edit:[],Changes:[],Ready:[]});
+    map.get(k)[col].push(v);
+  }
+  return [...map.entries()].sort((a,b)=>orderIdx(a[0])-orderIdx(b[0]));
+}
 function renderPipeline(){
   const root=document.getElementById("pipeline");
-  const groups=activeByCreator();
-  const total=groups.reduce((n,[,vs])=>n+vs.length,0);
-  let stuck=0; groups.forEach(([,vs])=>vs.forEach(v=>{if(ATTN.has(v.status)||(v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS))stuck++;}));
-  let html=`<div class="toprow"><span class="h">Pipeline</span><span class="s">${total} active across ${groups.length} creators</span>`+
-    (stuck?`<span class="stuck"><span class="sd"></span>${stuck} need attention</span>`:``)+`</div>`;
-  if(!groups.length) html+=`<div class="empty">No active videos right now.</div>`;
-  for(const [name,vs] of groups){
-    const byStage=new Map();
-    for(const v of vs){const s=v.status||"Scripting";if(!byStage.has(s))byStage.set(s,[]);byStage.get(s).push(v);}
+  const groups=boardByCreator();
+  const total=groups.reduce((n,[,c])=>n+c.Film.length+c.Edit.length+c.Changes.length+c.Ready.length,0);
+  let attn=0; groups.forEach(([,c])=>{attn+=c.Changes.length;});
+  let html=`<div class="toprow"><span class="h">Pipeline</span><span class="s">${total} in production across ${groups.length} creators</span>`+
+    (attn?`<span class="stuck"><span class="sd"></span>${attn} in changes</span>`:``)+`</div>`;
+  if(!groups.length) html+=`<div class="empty">Nothing at film stage yet. Set a video to “6- To Film” in Notion and it shows up here.</div>`;
+  for(const [name,cols] of groups){
+    const tot=cols.Film.length+cols.Edit.length+cols.Changes.length+cols.Ready.length;
     html+=`<div class="lane"><div class="lanehead" data-creator="${esc(name)}">
         <span class="accent-dot" style="background:${ccol(name)}"></span>
-        <span class="nm">${esc(name)}</span><span class="ct">${vs.length}</span>
+        <span class="nm">${esc(name)}</span><span class="ct">${tot}</span>
         <span class="chev">›</span></div><div class="stagerow">`;
-    for(const st of STAGE_ORDER){
-      const items=byStage.get(st); if(!items||!items.length) continue;
-      items.sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
-      const c=SP[st]||["#F1EFE8","#5f5e5a"];
-      html+=`<div class="stage"><div class="stagehead" style="background:${c[0]};color:${c[1]}">${esc(st)}<span class="sc">${items.length}</span></div><div class="stbody">`;
+    for(const col of COLS){
+      const items=cols[col].slice().sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
+      const c=CT[col];
+      html+=`<div class="stage" data-col="${col}" data-creator="${esc(name)}"><div class="stagehead" style="background:${c[0]};color:${c[1]}">${col}<span class="sc">${items.length}</span></div><div class="stbody thin">`;
       for(const v of items){
-        const d=v.daysInStage,stk=ATTN.has(v.status)||(d!=null&&d>=STUCK_DAYS);
+        const d=v.daysInStage,stk=v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS;
         const tag=v.type?(TT[v.type]||null):null;
-        html+=`<div class="card" style="--ac:${c[1]}" data-url="${esc(v.url||"")}">
+        html+=`<div class="card" draggable="true" style="--ac:${c[1]}" data-page="${esc(v.id||"")}" data-url="${esc(v.url||"")}" data-col="${col}" data-title="${esc(v.title)}">
           <div class="t">${esc(v.title)}</div>
           <div class="meta">${tag?`<span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>`:`<span></span>`}
-          <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span></div></div>`;
+          <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span>
+          <span class="mv" data-mv>move ▾</span></div></div>`;
       }
       html+=`</div></div>`;
     }
     html+=`</div></div>`;
   }
   root.innerHTML=html;
-  root.querySelectorAll(".card").forEach(el=>el.onclick=()=>{const u=el.dataset.url;if(u)window.open(u,"_blank");});
+  wirePipeline(root);
+}
+
+function wirePipeline(root){
+  // open in Notion on card body click (but not when starting a drag or hitting "move")
+  root.querySelectorAll(".card").forEach(el=>{
+    el.addEventListener("click",e=>{
+      if(e.target.closest("[data-mv]"))return;
+      const u=el.dataset.url; if(u)window.open(u,"_blank");
+    });
+    el.addEventListener("dragstart",e=>{
+      el.classList.add("dragging");
+      e.dataTransfer.effectAllowed="move";
+      e.dataTransfer.setData("text/plain",JSON.stringify({page:el.dataset.page,from:el.dataset.col,title:el.dataset.title}));
+    });
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+  });
+  root.querySelectorAll(".stage").forEach(st=>{
+    st.addEventListener("dragover",e=>{e.preventDefault();st.classList.add("dragover");});
+    st.addEventListener("dragleave",()=>st.classList.remove("dragover"));
+    st.addEventListener("drop",e=>{
+      e.preventDefault();st.classList.remove("dragover");
+      let p;try{p=JSON.parse(e.dataTransfer.getData("text/plain"));}catch{return;}
+      moveCard(p.page,p.title,p.from,st.dataset.col);
+    });
+  });
+  root.querySelectorAll("[data-mv]").forEach(b=>{
+    b.addEventListener("click",e=>{
+      e.stopPropagation();
+      const card=b.closest(".card");
+      openMoveMenu(card.dataset.page,card.dataset.title,card.dataset.col,b);
+    });
+  });
   root.querySelectorAll(".lanehead").forEach(el=>el.onclick=()=>openDrawer(el.dataset.creator));
+}
+
+function openMoveMenu(page,title,from,anchor){
+  closeMoveMenu();
+  const m=document.createElement("div");m.className="mvmenu";m.id="mvmenu";
+  m.innerHTML=`<div class="mi head">Move to…</div>`+COLS.filter(c=>c!==from).map(c=>
+    `<div class="mi" data-to="${c}"><span class="dot" style="background:${CT[c][1]}"></span>${c}</div>`).join("");
+  document.body.appendChild(m);
+  const r=anchor.getBoundingClientRect();
+  m.style.top=Math.min(r.bottom+6,window.innerHeight-m.offsetHeight-8)+"px";
+  m.style.left=Math.min(r.left,window.innerWidth-m.offsetWidth-8)+"px";
+  m.querySelectorAll("[data-to]").forEach(it=>it.onclick=()=>{closeMoveMenu();moveCard(page,title,from,it.dataset.to);});
+  setTimeout(()=>document.addEventListener("click",closeMoveMenu,{once:true}),0);
+}
+function closeMoveMenu(){const m=document.getElementById("mvmenu");if(m)m.remove();}
+
+async function moveCard(page,title,from,to){
+  if(!page||!to||from===to)return;
+  if(!confirm(`Move “${title}” to ${to}?`))return;
+  try{
+    const r=await fetch("/api/set-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId:page,stage:to})});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error||"write failed");
+    await loadAll(true);        // re-pull fresh from Notion so the board matches reality
+  }catch(err){
+    alert("Couldn't move that one — "+(err.message||err)+"\nThe board will refresh to show what's actually in Notion.");
+    loadAll(true);
+  }
 }
 
 const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
@@ -407,7 +500,8 @@ function loadDemo(){
   state.keys={Brad:"brad-8103212a67d23310",Lindsay:"lindsay-2fd26f3e7a617439",Cindy:"cindy-7dc96184bcddd6a1",
     Chris:"chris-29d41aae7db6489d",Duncan:"duncan-650480c11f28e5bf",Joshua:"joshua-9740c5a03cff580e",
     Valeri:"valeri-997a4f8fc91e8db3",Emtech:"emtech-47434656f30f6b20"};
-  const P=(creator,title,status,daysInStage,type)=>({creator,title,status,daysInStage,type:type||"Personal",url:""});
+  const SR={Filming:"6- To Film",Editing:"7- In Edit",Review:"8- Changes",Ready:"11- Ready",Scripting:"4- Script Draft"};
+  const P=(creator,title,status,daysInStage,type)=>({creator,title,status,rawStatus:SR[status]||status,daysInStage,type:type||"Personal",url:"",id:""});
   state.pipeline=[
     P("Brad","Google buries small creators","Editing",1.2),P("Brad","Faceless brand hooks","Editing",0.6),
     P("Chris","Open source AI video generator","Review",2.3),P("Chris","Create this effect with AI","Editing",0.9),P("Chris","Bluehost long form","Filming",1.0,"Sponsor"),
