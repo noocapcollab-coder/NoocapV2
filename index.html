@@ -69,6 +69,20 @@
     border-radius:10px;padding:9px;font-size:12.5px;font-weight:500;cursor:pointer;transition:.15s}
   .add:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
   .empty{color:var(--faint);font-size:12px;padding:8px 4px 4px}
+  /* pipeline: creator lanes with stage columns */
+  .lane{margin:0 2px 20px;border:0.5px solid var(--line);border-radius:16px;background:var(--soft);box-shadow:var(--shadow);overflow:hidden}
+  .lanehead{display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;border-bottom:0.5px solid var(--line)}
+  .lanehead .accent-dot{width:10px;height:10px;border-radius:50%;flex:none}
+  .lanehead .nm{font-weight:600;font-size:15px;letter-spacing:-.02em}
+  .lanehead .ct{color:var(--muted);font-size:12px;background:var(--surface);border:0.5px solid var(--line);border-radius:7px;padding:1px 8px}
+  .lanehead .chev{margin-left:auto;color:var(--faint);font-size:14px;transition:.15s}
+  .lanehead:hover .chev{color:var(--accent);transform:translateX(2px)}
+  .stagerow{display:flex;gap:12px;overflow-x:auto;padding:13px 13px 15px;align-items:flex-start}
+  .stagerow::-webkit-scrollbar{height:9px}
+  .stagerow::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:3px solid var(--soft)}
+  .stage{flex:0 0 196px}
+  .stagehead{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.02em;padding:5px 10px;border-radius:8px;margin-bottom:9px}
+  .stagehead .sc{margin-left:auto;font-weight:600;opacity:.85}
   /* weekly band */
   .wkbar{display:flex;align-items:center;gap:11px;margin:2px 2px 16px;flex-wrap:wrap}
   .wkbar .lab{color:var(--faint);font-size:13px}
@@ -155,13 +169,12 @@
 
 <script>
 const SP={
- "Ready to Film":["#FCEBEB","#a32d2d"],"Awaiting Editor Assignment":["#E6F1FB","#185fa5"],
- "Ready for Editing":["#EEEDFE","#534ab7"],"Editing in Progress":["#FBEAF0","#993556"],
- "Awaiting Review":["#F1EFE8","#5f5e5a"],"Revisions Requested":["#FAEEDA","#854f0b"],
- "Revisions Complete":["#E1F5EE","#0f6e56"],"Green Light":["#EAF3DE","#3b6d11"],
- "Posted":["#E1F5EE","#0f6e56"]
+ "Idea":["#F1EFE8","#5f5e5a"],"Scripting":["#EEEDFE","#534ab7"],"Filming":["#FCEBEB","#a32d2d"],
+ "Editing":["#FBEAF0","#993556"],"Review":["#FAEEDA","#854f0b"],"Ready":["#EAF3DE","#3b6d11"],
+ "Posted":["#E1F5EE","#0f6e56"],"Archived":["#F1EFE8","#5f5e5a"]
 };
-const ATTN=new Set(["Revisions Requested","Awaiting Editor Assignment","Awaiting Review"]);
+const ATTN=new Set(["Review"]);
+const STUCK_DAYS=4;
 const CC={Brad:"#378ADD",Lindsay:"#D85A30",Cindy:"#639922",Chris:"#BA7517",Duncan:"#7F77DD",
  Joshua:"#534AB7",Valeri:"#1D9E75",Emtech:"#E24B4A",Dymtro:"#888780",Jonathan:"#3B6D11",Nuel:"#1D9E75",Neul:"#1D9E75"};
 const ORDER=["Brad","Chris","Lindsay","Emtech","Valeri","Duncan","Dymtro","Jonathan","Joshua","Cindy","Nuel","Neul"];
@@ -188,6 +201,7 @@ async function loadAll(){
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
   if(state.demo){dot.className="dot stale";t.textContent="preview";return;}
+  if(!state.lastOk){dot.className="dot";t.textContent="connecting…";return;}
   const ago=Math.round((Date.now()-state.lastOk)/1000);
   dot.className="dot"+(ago>REFRESH_MS/1000+8?" stale":"");
   t.textContent=ago<5?"live · just now":("synced "+ago+"s ago");
@@ -209,34 +223,42 @@ function activeByCreator(){
   }
   return [...map.entries()].sort((a,b)=>orderIdx(a[0])-orderIdx(b[0]));
 }
+const STAGE_ORDER=["Idea","Scripting","Filming","Editing","Review","Ready"];
 function renderPipeline(){
   const root=document.getElementById("pipeline");
   const groups=activeByCreator();
   const total=groups.reduce((n,[,vs])=>n+vs.length,0);
-  let stuck=0; groups.forEach(([,vs])=>vs.forEach(v=>{if(ATTN.has(v.status)||(v.daysInStage!=null&&v.daysInStage>=2))stuck++;}));
+  let stuck=0; groups.forEach(([,vs])=>vs.forEach(v=>{if(ATTN.has(v.status)||(v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS))stuck++;}));
   let html=`<div class="toprow"><span class="h">Pipeline</span><span class="s">${total} active across ${groups.length} creators</span>`+
-    (stuck?`<span class="stuck"><span class="sd"></span>${stuck} need attention</span>`:``)+`</div><div class="cols">`;
+    (stuck?`<span class="stuck"><span class="sd"></span>${stuck} need attention</span>`:``)+`</div>`;
   if(!groups.length) html+=`<div class="empty">No active videos right now.</div>`;
   for(const [name,vs] of groups){
-    vs.sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
-    html+=`<div class="col"><div class="accent" style="background:${ccol(name)}"></div>
-      <div class="colhead" data-creator="${esc(name)}">
-        <span class="cdot" style="background:${ccol(name)}"></span><span class="nm">${esc(name)}</span>
-        <span class="ct">${vs.length}</span><span class="chev">›</span></div><div class="cbody">`;
-    for(const v of vs){
-      const c=SP[v.status]||["#F1EFE8","#5f5e5a"];
-      const d=v.daysInStage,stk=ATTN.has(v.status)||(d!=null&&d>=2);
-      html+=`<div class="card" style="--ac:${c[1]}" data-url="${esc(v.url||"")}">
-        <div class="t">${esc(v.title)}</div>
-        <div class="meta"><span class="pill" style="background:${c[0]};color:${c[1]}">${esc(v.status||"—")}</span>
-        <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span></div></div>`;
+    const byStage=new Map();
+    for(const v of vs){const s=v.status||"Scripting";if(!byStage.has(s))byStage.set(s,[]);byStage.get(s).push(v);}
+    html+=`<div class="lane"><div class="lanehead" data-creator="${esc(name)}">
+        <span class="accent-dot" style="background:${ccol(name)}"></span>
+        <span class="nm">${esc(name)}</span><span class="ct">${vs.length}</span>
+        <span class="chev">›</span></div><div class="stagerow">`;
+    for(const st of STAGE_ORDER){
+      const items=byStage.get(st); if(!items||!items.length) continue;
+      items.sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
+      const c=SP[st]||["#F1EFE8","#5f5e5a"];
+      html+=`<div class="stage"><div class="stagehead" style="background:${c[0]};color:${c[1]}">${esc(st)}<span class="sc">${items.length}</span></div><div class="stbody">`;
+      for(const v of items){
+        const d=v.daysInStage,stk=ATTN.has(v.status)||(d!=null&&d>=STUCK_DAYS);
+        const tag=v.type?(TT[v.type]||null):null;
+        html+=`<div class="card" style="--ac:${c[1]}" data-url="${esc(v.url||"")}">
+          <div class="t">${esc(v.title)}</div>
+          <div class="meta">${tag?`<span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>`:`<span></span>`}
+          <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span></div></div>`;
+      }
+      html+=`</div></div>`;
     }
     html+=`</div></div>`;
   }
-  html+=`</div>`;
   root.innerHTML=html;
   root.querySelectorAll(".card").forEach(el=>el.onclick=()=>{const u=el.dataset.url;if(u)window.open(u,"_blank");});
-  root.querySelectorAll(".colhead").forEach(el=>el.onclick=()=>openDrawer(el.dataset.creator));
+  root.querySelectorAll(".lanehead").forEach(el=>el.onclick=()=>openDrawer(el.dataset.creator));
 }
 
 const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
@@ -387,15 +409,15 @@ function loadDemo(){
     Valeri:"valeri-997a4f8fc91e8db3",Emtech:"emtech-47434656f30f6b20"};
   const P=(creator,title,status,daysInStage,type)=>({creator,title,status,daysInStage,type:type||"Personal",url:""});
   state.pipeline=[
-    P("Brad","Google buries small creators","Editing in Progress",1.2),P("Brad","Faceless brand hooks","Ready for Editing",0.6),
-    P("Chris","Open source AI video generator","Awaiting Review",2.3),P("Chris","Create this effect with AI","Editing in Progress",0.9),P("Chris","Bluehost long form","Ready to Film",1.0,"Sponsor"),
-    P("Lindsay","Claude for small business","Green Light",0.4),P("Lindsay","People are selling Claude plugins","Awaiting Editor Assignment",2.7),
-    P("Emtech","Hidden AI tools","Editing in Progress",1.1),P("Emtech","Dola AI","Revisions Requested",3.4,"Sponsor"),
-    P("Valeri","Hottest job in AI isn't what you think","Revisions Requested",5.1),P("Valeri","Stop prompting, do this instead","Ready for Editing",0.7),
-    P("Duncan","Build entire lead list with Claude","Awaiting Review",2.0),P("Duncan","Claude token explained","Editing in Progress",1.0),P("Duncan","The AI curve","Ready to Film",0.5),
-    P("Dymtro","Use Claude Code free forever","Ready for Editing",0.8),
-    P("Joshua","Podcast S4 · clip 2","Ready to Film",1.0),P("Joshua","Podcast S4 · clip 4","Awaiting Review",1.6),
-    P("Cindy","AI avatar A/B test","Editing in Progress",0.9)
+    P("Brad","Google buries small creators","Editing",1.2),P("Brad","Faceless brand hooks","Editing",0.6),
+    P("Chris","Open source AI video generator","Review",2.3),P("Chris","Create this effect with AI","Editing",0.9),P("Chris","Bluehost long form","Filming",1.0,"Sponsor"),
+    P("Lindsay","Claude for small business","Ready",0.4),P("Lindsay","People are selling Claude plugins","Scripting",2.7),
+    P("Emtech","Hidden AI tools","Editing",1.1),P("Emtech","Dola AI","Review",3.4,"Sponsor"),
+    P("Valeri","Hottest job in AI isn't what you think","Review",5.1),P("Valeri","Stop prompting, do this instead","Editing",0.7),
+    P("Duncan","Build entire lead list with Claude","Review",2.0),P("Duncan","Claude token explained","Editing",1.0),P("Duncan","The AI curve","Filming",0.5),
+    P("Dymtro","Use Claude Code free forever","Editing",0.8),
+    P("Joshua","Podcast S4 · clip 2","Filming",1.0),P("Joshua","Podcast S4 · clip 4","Review",1.6),
+    P("Cindy","AI avatar A/B test","Editing",0.9)
   ];
   const I=(title,checked,type,note)=>({title,checked,type,note:note||""});
   const creators=[
