@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>NOOCAP · Command Center</title>
+<style>
+  :root{
+    --bg:#f7f5ef; --surface:#fff; --surface2:#efece4; --soft:#f4f1ea;
+    --line:rgba(26,22,12,.09); --line2:rgba(26,22,12,.17); --text:#1d1b16; --muted:#6b685e; --faint:#9d9a8f;
+    --accent:#b9701a; --accent-soft:#f3e3cf; --ok:#1f7a4d; --warn:#9a5b0b; --danger:#a72f2f; --radius:14px;
+    --shadow:0 1px 2px rgba(20,16,8,.05),0 1px 1px rgba(20,16,8,.03);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#171614; --surface:#211f1c; --surface2:#2a2825; --soft:#211f1c;
+      --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.17); --text:#ece9e1; --muted:#a6a399; --faint:#6f6d65;
+      --accent:#e2992f; --accent-soft:#3a2f1c; --ok:#5dcaa5; --warn:#e6b25f; --danger:#e98a8a;
+      --shadow:0 1px 2px rgba(0,0,0,.3); }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:15px;line-height:1.45;letter-spacing:-.01em}
+  .wrap{max-width:1560px;margin:0 auto;padding:0 20px 64px}
+  header{position:sticky;top:0;z-index:8;display:flex;align-items:center;gap:14px;padding:16px 2px 14px;
+    background:linear-gradient(var(--bg) 78%,transparent);flex-wrap:wrap}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:600;letter-spacing:.05em;font-size:14.5px}
+  .brand .mark{width:13px;height:13px;background:var(--accent);transform:rotate(45deg);border-radius:3px}
+  .seg{display:inline-flex;background:var(--surface2);border-radius:11px;padding:3px;border:0.5px solid var(--line)}
+  .seg button{border:none;background:transparent;color:var(--muted);font-size:13.5px;padding:7px 18px;border-radius:8px;cursor:pointer;font-weight:500;transition:.15s}
+  .seg button.on{background:var(--surface);color:var(--text);box-shadow:var(--shadow)}
+  .sync{margin-left:auto;display:flex;align-items:center;gap:13px;color:var(--faint);font-size:12.5px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 20%,transparent)}
+  .dot.stale{background:var(--faint);box-shadow:none}
+  .iconbtn{border:0.5px solid var(--line2);background:var(--surface);color:var(--muted);border-radius:9px;height:32px;padding:0 13px;cursor:pointer;font-size:12.5px;font-weight:500;transition:.15s}
+  .iconbtn:hover{color:var(--text);border-color:var(--accent)}
+  .banner{background:var(--accent-soft);border:0.5px solid color-mix(in srgb,var(--accent) 30%,transparent);
+    color:color-mix(in srgb,var(--accent) 88%,var(--text));border-radius:11px;padding:10px 14px;margin:0 2px 16px;font-size:12.5px;display:none}
+  .banner.show{display:block}
+  .toprow{display:flex;align-items:baseline;gap:10px;margin:4px 2px 14px}
+  .toprow .h{font-size:15px;font-weight:600}
+  .toprow .s{color:var(--faint);font-size:13px}
+  .toprow .stuck{margin-left:auto;font-size:12.5px;color:var(--warn);display:flex;align-items:center;gap:6px}
+  .toprow .stuck .sd{width:7px;height:7px;border-radius:50%;background:var(--warn)}
+  .cols{display:flex;gap:14px;overflow-x:auto;padding:2px 2px 16px;align-items:flex-start}
+  .cols::-webkit-scrollbar{height:10px}
+  .cols::-webkit-scrollbar-thumb{background:var(--line2);border-radius:99px;border:3px solid var(--bg)}
+  .col{flex:0 0 212px;background:var(--soft);border:0.5px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+  .col .accent{height:3px}
+  .colhead{display:flex;align-items:center;gap:9px;padding:12px 13px 10px;cursor:pointer}
+  .colhead.plain{cursor:default}
+  .colhead .cdot{width:9px;height:9px;border-radius:50%;flex:none}
+  .colhead .nm{font-weight:600;font-size:14.5px;letter-spacing:-.02em}
+  .colhead .ct{margin-left:auto;color:var(--muted);font-size:12px;background:var(--surface);border:0.5px solid var(--line);border-radius:7px;padding:1px 7px}
+  .colhead .chev{color:var(--faint);font-size:13px;transition:.15s}
+  .colhead:hover .chev{color:var(--accent);transform:translateX(2px)}
+  .cbody{padding:0 11px 11px}
+  .card{position:relative;background:var(--surface);border:0.5px solid var(--line);border-radius:11px;padding:10px 11px 10px 13px;margin-bottom:8px;cursor:pointer;transition:.13s;box-shadow:var(--shadow)}
+  .card:hover{border-color:var(--line2);transform:translateY(-1px)}
+  .card::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--ac,transparent)}
+  .card .t{font-size:12.5px;line-height:1.35;margin-bottom:8px;font-weight:450}
+  .card .meta{display:flex;align-items:center;gap:7px}
+  .pill{font-size:10px;padding:2.5px 8px;border-radius:8px;white-space:nowrap;font-weight:600;letter-spacing:.01em}
+  .days{margin-left:auto;font-size:10.5px;color:var(--faint);white-space:nowrap;font-weight:500}
+  .days.warn{color:var(--warn)}
+  .done{opacity:.78}
+  .done .t{text-decoration:line-through;text-decoration-color:var(--line2);color:var(--muted)}
+  .add{width:100%;margin-top:2px;border:1.3px dashed var(--line2);background:transparent;color:var(--muted);
+    border-radius:10px;padding:9px;font-size:12.5px;font-weight:500;cursor:pointer;transition:.15s}
+  .add:hover{color:var(--accent);border-color:var(--accent);background:var(--accent-soft)}
+  .empty{color:var(--faint);font-size:12px;padding:8px 4px 4px}
+  /* weekly band */
+  .wkbar{display:flex;align-items:center;gap:11px;margin:2px 2px 16px;flex-wrap:wrap}
+  .wkbar .lab{color:var(--faint);font-size:13px}
+  select{appearance:none;background:var(--surface);color:var(--text);border:0.5px solid var(--line2);
+    border-radius:10px;padding:9px 32px 9px 13px;font-size:13.5px;font-weight:500;cursor:pointer;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23999' stroke-width='1.6' stroke-linecap='round'/></svg>");
+    background-repeat:no-repeat;background-position:right 11px center}
+  .band{display:grid;grid-template-columns:repeat(auto-fit,minmax(184px,1fr));gap:13px;margin:0 2px 22px}
+  .kpi{background:var(--surface);border:0.5px solid var(--line);border-radius:16px;padding:16px 17px;box-shadow:var(--shadow)}
+  .kpi .h{display:flex;align-items:center;gap:8px;margin-bottom:11px;color:var(--muted);font-size:12.5px;font-weight:500}
+  .kpi .h .k{width:9px;height:9px;border-radius:50%}
+  .kpi .v{font-size:27px;font-weight:600;line-height:1;letter-spacing:-.03em}
+  .kpi .v small{font-size:15px;color:var(--faint);font-weight:500}
+  .kpi .s{font-size:12px;color:var(--faint);margin-top:7px}
+  .bar{height:6px;background:var(--surface2);border-radius:99px;margin-top:13px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:99px;transition:width .4s}
+  /* drawer + modal */
+  .scrim{position:fixed;inset:0;background:rgba(12,9,4,.46);backdrop-filter:blur(2px);opacity:0;pointer-events:none;transition:.18s;z-index:40}
+  .scrim.show{opacity:1;pointer-events:auto}
+  .drawer{position:fixed;top:0;right:0;height:100%;width:min(430px,93vw);background:var(--bg);
+    border-left:0.5px solid var(--line2);transform:translateX(101%);transition:transform .22s cubic-bezier(.4,0,.2,1);z-index:50;
+    display:flex;flex-direction:column;padding:20px}
+  .drawer.show{transform:none}
+  .modal{position:fixed;left:50%;top:50%;transform:translate(-50%,-46%) scale(.97);opacity:0;pointer-events:none;
+    width:min(560px,94vw);max-height:86vh;background:var(--bg);border:0.5px solid var(--line2);border-radius:18px;
+    z-index:50;display:flex;flex-direction:column;transition:.17s;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+  .modal.show{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
+  .dhead{display:flex;align-items:center;gap:11px;margin-bottom:16px}
+  .x{margin-left:auto;border:none;background:var(--surface2);color:var(--muted);width:32px;height:32px;border-radius:9px;cursor:pointer;font-size:16px}
+  .x:hover{color:var(--text)}
+  .field{display:flex;gap:8px;margin:8px 16px 4px}
+  .field input{flex:1;background:var(--surface);border:0.5px solid var(--line2);border-radius:10px;padding:10px 12px;color:var(--text);font-size:12.5px}
+  .btn{border:none;border-radius:10px;padding:10px 15px;font-size:13px;font-weight:600;cursor:pointer;transition:.13s}
+  .btn.primary{background:var(--accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.ghost{background:var(--surface2);color:var(--text)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .mlist{overflow-y:auto;padding:2px 8px}
+  .row{display:flex;align-items:flex-start;gap:11px;padding:10px 9px;border-radius:11px;border:0.5px solid transparent}
+  .row:hover{background:var(--surface2)}
+  .row.sel{background:var(--surface2);border-color:var(--line)}
+  .row.dis{opacity:.4}
+  .row .cb{width:18px;height:18px;border-radius:6px;border:1.5px solid var(--line2);margin-top:1px;flex:none;display:grid;place-items:center;font-size:11px;color:#fff;transition:.12s}
+  .row.sel .cb{background:var(--accent);border-color:var(--accent)}
+  .row .rt{flex:1;font-size:12.5px;line-height:1.32}
+  .row .rs{font-size:10.5px;color:var(--faint);margin-top:3px}
+  .row .ctrls{display:flex;gap:7px;margin-top:9px}
+  .row .ctrls.hide{display:none}
+  .ps{display:inline-flex;border:0.5px solid var(--line2);border-radius:8px;overflow:hidden}
+  .ps button{border:none;background:transparent;color:var(--muted);font-size:11px;padding:5px 11px;cursor:pointer;font-weight:500}
+  .ps button.on{background:var(--accent);color:#fff}
+  .note{flex:1;background:var(--surface);border:0.5px solid var(--line2);border-radius:8px;padding:5px 9px;color:var(--text);font-size:11.5px}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(18px);opacity:0;
+    background:var(--text);color:var(--bg);padding:11px 18px;border-radius:11px;font-size:13px;font-weight:500;z-index:60;transition:.2s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateX(-50%)}
+  .muted{color:var(--muted)} .small{font-size:12px}
+  .linkrow{display:flex;gap:8px;margin:8px 0 16px}
+  .linkrow input{flex:1;background:var(--surface2);border:0.5px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><span class="mark"></span> NOOCAP</div>
+    <div class="seg" id="seg">
+      <button data-v="pipeline" class="on">Pipeline</button>
+      <button data-v="weekly">Weekly</button>
+    </div>
+    <div class="sync">
+      <span class="dot" id="dot"></span><span id="synctxt">connecting…</span>
+      <button class="iconbtn" id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner"></div>
+  <section id="pipeline"></section>
+  <section id="weekly" style="display:none"></section>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer"></aside>
+<div class="modal" id="modal"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const SP={
+ "Ready to Film":["#FCEBEB","#a32d2d"],"Awaiting Editor Assignment":["#E6F1FB","#185fa5"],
+ "Ready for Editing":["#EEEDFE","#534ab7"],"Editing in Progress":["#FBEAF0","#993556"],
+ "Awaiting Review":["#F1EFE8","#5f5e5a"],"Revisions Requested":["#FAEEDA","#854f0b"],
+ "Revisions Complete":["#E1F5EE","#0f6e56"],"Green Light":["#EAF3DE","#3b6d11"],
+ "Posted":["#E1F5EE","#0f6e56"]
+};
+const ATTN=new Set(["Revisions Requested","Awaiting Editor Assignment","Awaiting Review"]);
+const CC={Brad:"#378ADD",Lindsay:"#D85A30",Cindy:"#639922",Chris:"#BA7517",Duncan:"#7F77DD",
+ Joshua:"#534AB7",Valeri:"#1D9E75",Emtech:"#E24B4A",Dymtro:"#888780",Jonathan:"#3B6D11",Nuel:"#1D9E75",Neul:"#1D9E75"};
+const ORDER=["Brad","Chris","Lindsay","Emtech","Valeri","Duncan","Dymtro","Jonathan","Joshua","Cindy","Nuel","Neul"];
+const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556","Sponsor"],Edit:["#F1EFE8","#5f5e5a","Edit"]};
+const REFRESH_MS=20000;
+
+const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
+const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
+const ccol=(n)=> CC[pretty(n)]||"#888780";
+const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
+const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,demo:false,lastOk:0};
+
+async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
+async function loadAll(){
+  let okAny=false,err=null;
+  try{const d=await getJSON("/api/data");state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
+  try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;okAny=true;}catch(e){err=err||e;}
+  if(!okAny){ if(!state.demo) loadDemo(); showBanner("Preview mode — showing a baked snapshot of the Jun 15–20 plan. Deploy to Vercel with your NOTION_TOKEN and every view goes live."); }
+  else{ state.demo=false; hideBanner(); state.lastOk=Date.now(); }
+  render(); setSync();
+}
+function setSync(){
+  const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
+  if(state.demo){dot.className="dot stale";t.textContent="preview";return;}
+  const ago=Math.round((Date.now()-state.lastOk)/1000);
+  dot.className="dot"+(ago>REFRESH_MS/1000+8?" stale":"");
+  t.textContent=ago<5?"live · just now":("synced "+ago+"s ago");
+}
+setInterval(()=>{ if(!state.demo) setSync(); },1000);
+
+function render(){
+  document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.v===state.view));
+  document.getElementById("pipeline").style.display=state.view==="pipeline"?"":"none";
+  document.getElementById("weekly").style.display=state.view==="weekly"?"":"none";
+  if(state.view==="pipeline") renderPipeline(); else renderWeekly();
+}
+
+function activeByCreator(){
+  const map=new Map();
+  for(const v of state.pipeline){
+    if(!v.creator||v.status==="Posted")continue;
+    const k=pretty(v.creator); if(!map.has(k))map.set(k,[]); map.get(k).push(v);
+  }
+  return [...map.entries()].sort((a,b)=>orderIdx(a[0])-orderIdx(b[0]));
+}
+function renderPipeline(){
+  const root=document.getElementById("pipeline");
+  const groups=activeByCreator();
+  const total=groups.reduce((n,[,vs])=>n+vs.length,0);
+  let stuck=0; groups.forEach(([,vs])=>vs.forEach(v=>{if(ATTN.has(v.status)||(v.daysInStage!=null&&v.daysInStage>=2))stuck++;}));
+  let html=`<div class="toprow"><span class="h">Pipeline</span><span class="s">${total} active across ${groups.length} creators</span>`+
+    (stuck?`<span class="stuck"><span class="sd"></span>${stuck} need attention</span>`:``)+`</div><div class="cols">`;
+  if(!groups.length) html+=`<div class="empty">No active videos right now.</div>`;
+  for(const [name,vs] of groups){
+    vs.sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
+    html+=`<div class="col"><div class="accent" style="background:${ccol(name)}"></div>
+      <div class="colhead" data-creator="${esc(name)}">
+        <span class="cdot" style="background:${ccol(name)}"></span><span class="nm">${esc(name)}</span>
+        <span class="ct">${vs.length}</span><span class="chev">›</span></div><div class="cbody">`;
+    for(const v of vs){
+      const c=SP[v.status]||["#F1EFE8","#5f5e5a"];
+      const d=v.daysInStage,stk=ATTN.has(v.status)||(d!=null&&d>=2);
+      html+=`<div class="card" style="--ac:${c[1]}" data-url="${esc(v.url||"")}">
+        <div class="t">${esc(v.title)}</div>
+        <div class="meta"><span class="pill" style="background:${c[0]};color:${c[1]}">${esc(v.status||"—")}</span>
+        <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span></div></div>`;
+    }
+    html+=`</div></div>`;
+  }
+  html+=`</div>`;
+  root.innerHTML=html;
+  root.querySelectorAll(".card").forEach(el=>el.onclick=()=>{const u=el.dataset.url;if(u)window.open(u,"_blank");});
+  root.querySelectorAll(".colhead").forEach(el=>el.onclick=()=>openDrawer(el.dataset.creator));
+}
+
+const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
+function renderWeekly(){
+  const root=document.getElementById("weekly");
+  if(!state.weeks.length){root.innerHTML=`<div class="empty">No weekly plan found.</div>`;return;}
+  const w=state.weeks[state.wkIdx]||state.weeks[0];const t=w.totals;
+  const comp=t.planned?Math.round(t.shipped/t.planned*100):0;
+  const aiP=t.aiPlanned?Math.round(t.aiShipped/t.aiPlanned*100):0;
+  const neP=t.normalPlanned?Math.round(t.normalShipped/t.normalPlanned*100):0;
+  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
+  const kpi=(label,big,sub,pct)=>`<div class="kpi"><div class="h"><span class="k" style="background:${pct==null?"var(--faint)":hc(pct)}"></span>${label}</div>
+    <div class="v">${big}</div><div class="s">${sub}</div>${pct==null?"":`<div class="bar"><i style="width:${pct}%;background:${hc(pct)}"></i></div>`}</div>`;
+  let html=`<div class="wkbar"><span class="toprow" style="margin:0"><span class="h">Weekly</span></span>
+    <span class="lab" style="margin-left:auto">Week</span><select id="wksel">${opts}</select></div>
+    <div class="band">
+      ${kpi("AI videos shipped",`${t.aiShipped} <small>/ ${t.aiPlanned}</small>`,`${aiP}% of planned`,aiP)}
+      ${kpi("Normal edits",`${t.normalShipped} <small>/ ${t.normalPlanned}</small>`,"Joshua &amp; Nuel",neP)}
+      ${kpi("Weekly completion",`${comp}<small>%</small>`,`${t.shipped} of ${t.planned} planned`,comp)}
+      ${kpi("Personal · Sponsor",`${t.personalShipped} · ${t.sponsorShipped}`,"shipped this week",null)}
+    </div>
+    <div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
+  const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
+  for(const c of creators){
+    const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
+    html+=`<div class="col"><div class="accent" style="background:${ccol(c.name)}"></div>
+      <div class="colhead plain"><span class="cdot" style="background:${ccol(c.name)}"></span>
+      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${c.shipped}/${c.planned}</span></div><div class="cbody">`;
+    for(const it of c.items){
+      const tag=TT[it.type||(isNormal?"Edit":"Personal")]||TT.Personal;
+      html+=`<div class="card ${it.checked?"done":""}" style="--ac:${tag[1]};cursor:default">
+        <div class="t">${esc(it.title)}</div>
+        <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
+        <span class="days">${it.checked?"✓ posted":(it.note?esc(it.note):"planned")}</span></div></div>`;
+    }
+    if(!c.items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
+    html+=`<button class="add" data-creator="${esc(c.name)}">+ add video</button></div></div>`;
+  }
+  html+=`</div>`;
+  root.innerHTML=html;
+  document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;renderWeekly();};
+  root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
+}
+
+function openDrawer(name){
+  const key=state.keys[pretty(name)]||state.keys[name];
+  const link=key?`${location.origin}/portal.html?k=${key}`:null;
+  const vids=state.pipeline.filter(v=>pretty(v.creator)===pretty(name)&&v.status!=="Posted").sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
+  const d=document.getElementById("drawer");
+  let html=`<div class="dhead"><span class="cdot" style="width:12px;height:12px;border-radius:50%;background:${ccol(name)}"></span>
+    <strong style="font-size:17px;letter-spacing:-.02em">${esc(pretty(name))}</strong><button class="x" data-close>×</button></div>`;
+  if(link) html+=`<div class="small muted">Client portal — safe to share, shows only ${esc(pretty(name))}'s work</div>
+      <div class="linkrow"><input id="plink" readonly value="${esc(link)}"><button class="btn ghost" id="copyl">Copy</button></div>`;
+  else html+=`<div class="small muted" style="margin-bottom:12px">No portal key set for this creator.</div>`;
+  html+=`<div class="small muted" style="margin:2px 0 8px">${vids.length} active · real status</div><div style="overflow-y:auto">`;
+  for(const v of vids){const c=SP[v.status]||["#F1EFE8","#5f5e5a"];
+    html+=`<div class="card" style="--ac:${c[1]}" data-url="${esc(v.url||"")}"><div class="t">${esc(v.title)}</div>
+      <div class="meta"><span class="pill" style="background:${c[0]};color:${c[1]}">${esc(v.status||"—")}</span>
+      <span class="days">${v.daysInStage!=null?v.daysInStage.toFixed(1)+"d":""}</span></div></div>`;}
+  if(!vids.length) html+=`<div class="empty">No active videos.</div>`;
+  html+=`</div>`;
+  d.innerHTML=html;
+  d.querySelector("[data-close]").onclick=closeOverlays;
+  const cp=d.querySelector("#copyl");
+  if(cp)cp.onclick=()=>{const i=d.querySelector("#plink");navigator.clipboard?.writeText(i.value);toast("Portal link copied");};
+  d.querySelectorAll(".card").forEach(el=>el.onclick=()=>{const u=el.dataset.url;if(u)window.open(u,"_blank");});
+  showScrim(); d.classList.add("show");
+}
+
+function openPicker(creatorName){
+  const w=state.weeks[state.wkIdx];
+  const creator=[...w.creators].find(c=>c.name===creatorName);
+  if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
+  const scheduled=new Set(creator.items.map(it=>norm(it.title)));
+  const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&v.status!=="Posted").sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
+  const isNormal=["JOSHUA","NUEL","NEUL"].includes(creatorName);
+  const m=document.getElementById("modal");
+  let rows=cands.map((v,i)=>{
+    const dis=scheduled.has(norm(v.title));const defType=v.type||"Personal";
+    return `<div class="row ${dis?"dis":""}" data-i="${i}" data-title="${esc(v.title)}" data-type="${esc(defType)}">
+      <div class="cb"></div><div style="flex:1"><div class="rt">${esc(v.title)}</div>
+        <div class="rs">${dis?"already in this week":esc(v.status||"")}</div>
+        <div class="ctrls hide"><span class="ps" data-ps>
+          <button data-t="Personal" class="${defType==="Personal"?"on":""}">Personal</button>
+          <button data-t="Sponsor" class="${defType==="Sponsor"?"on":""}">Sponsor</button></span>
+          <input class="note" placeholder="note (optional)"></div></div></div>`;
+  }).join("");
+  if(!cands.length) rows=`<div class="empty" style="padding:14px">No pipeline videos for ${esc(pretty(creatorName))} yet. Add one by title below.</div>`;
+  m.innerHTML=`<div style="display:flex;align-items:center;gap:10px;padding:17px 17px 6px">
+      <strong style="font-size:15px;letter-spacing:-.02em">Add to ${esc(pretty(creatorName))} · ${esc(w.label)}</strong><button class="x" data-close>×</button></div>
+    <div class="small muted" style="padding:0 17px 8px">Pick from the pipeline — greyed ones are already scheduled. Type defaults per video; change it per pick.</div>
+    <div class="mlist" id="mlist">${rows}</div>
+    <div class="field"><input id="manual" placeholder="…or type a new title"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;padding:13px 17px 17px">
+      <button class="btn ghost" data-close>Cancel</button><button class="btn primary" id="addbtn">Add to week</button></div>`;
+  m.querySelectorAll("[data-close]").forEach(b=>b.onclick=closeOverlays);
+  m.querySelectorAll(".row:not(.dis)").forEach(r=>{
+    r.querySelector(".cb").onclick=r.onclick=(e)=>{
+      if(e.target.closest("[data-ps]")||e.target.closest(".note"))return;
+      r.classList.toggle("sel"); r.querySelector(".ctrls").classList.toggle("hide",!r.classList.contains("sel"));};
+    r.querySelectorAll("[data-ps] button").forEach(b=>b.onclick=(e)=>{e.stopPropagation();r.dataset.type=b.dataset.t;
+      r.querySelectorAll("[data-ps] button").forEach(x=>x.classList.toggle("on",x===b));});
+  });
+  m.querySelector("#addbtn").onclick=()=>submitPicks(creator,isNormal);
+  showScrim(); m.classList.add("show");
+}
+
+async function submitPicks(creator,isNormal){
+  const m=document.getElementById("modal");const picks=[];
+  m.querySelectorAll(".row.sel").forEach(r=>picks.push({title:r.dataset.title,type:r.dataset.type||"Personal",note:(r.querySelector(".note")?.value||"").trim()}));
+  const manual=(m.querySelector("#manual")?.value||"").trim();
+  if(manual)picks.push({title:manual,type:"Personal",note:""});
+  if(!picks.length){toast("Nothing selected");return;}
+  const btn=m.querySelector("#addbtn");btn.disabled=true;btn.textContent="Adding…";
+  const w=state.weeks[state.wkIdx];let added=0;
+  for(const p of picks){
+    const sec=p.type==="Sponsor"?"SPONSOR":"PERSONAL";
+    const after=creator.anchors[sec]||creator.anchors.NONE||creator.anchors.PERSONAL||creator.anchors.SPONSOR||null;
+    try{
+      const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false})});
+      creator.items.push({title:p.title,note:p.note,checked:false,type:isNormal?(p.type||"Personal"):p.type,blockId:res.blockId});
+      creator.anchors[sec]=res.blockId||after;creator.planned++;w.totals.planned++;
+      if(isNormal)w.totals.normalPlanned++;else w.totals.aiPlanned++;
+      added++;
+    }catch(e){toast("Failed: "+e.message);}
+  }
+  closeOverlays(); if(added)toast(added+" added to "+w.label);
+  renderWeekly(); setTimeout(loadAll,1200);
+}
+
+function showScrim(){document.getElementById("scrim").classList.add("show");}
+function closeOverlays(){document.getElementById("scrim").classList.remove("show");
+  document.getElementById("drawer").classList.remove("show");document.getElementById("modal").classList.remove("show");}
+document.getElementById("scrim").onclick=closeOverlays;
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeOverlays();});
+let toastT;function toast(msg){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove("show"),2400);}
+function showBanner(m){const b=document.getElementById("banner");b.textContent=m;b.classList.add("show");}
+function hideBanner(){document.getElementById("banner").classList.remove("show");}
+document.getElementById("seg").onclick=(e)=>{const b=e.target.closest("button");if(!b)return;state.view=b.dataset.v;render();};
+document.getElementById("refresh").onclick=loadAll;
+
+/* ---------- preview snapshot (real Jun 15–20 plan; only used when API is unreachable) ---------- */
+function loadDemo(){
+  state.demo=true;
+  state.keys={Brad:"brad-8103212a67d23310",Lindsay:"lindsay-2fd26f3e7a617439",Cindy:"cindy-7dc96184bcddd6a1",
+    Chris:"chris-29d41aae7db6489d",Duncan:"duncan-650480c11f28e5bf",Joshua:"joshua-9740c5a03cff580e",
+    Valeri:"valeri-997a4f8fc91e8db3",Emtech:"emtech-47434656f30f6b20"};
+  const P=(creator,title,status,daysInStage,type)=>({creator,title,status,daysInStage,type:type||"Personal",url:""});
+  state.pipeline=[
+    P("Brad","Google buries small creators","Editing in Progress",1.2),P("Brad","Faceless brand hooks","Ready for Editing",0.6),
+    P("Chris","Open source AI video generator","Awaiting Review",2.3),P("Chris","Create this effect with AI","Editing in Progress",0.9),P("Chris","Bluehost long form","Ready to Film",1.0,"Sponsor"),
+    P("Lindsay","Claude for small business","Green Light",0.4),P("Lindsay","People are selling Claude plugins","Awaiting Editor Assignment",2.7),
+    P("Emtech","Hidden AI tools","Editing in Progress",1.1),P("Emtech","Dola AI","Revisions Requested",3.4,"Sponsor"),
+    P("Valeri","Hottest job in AI isn't what you think","Revisions Requested",5.1),P("Valeri","Stop prompting, do this instead","Ready for Editing",0.7),
+    P("Duncan","Build entire lead list with Claude","Awaiting Review",2.0),P("Duncan","Claude token explained","Editing in Progress",1.0),P("Duncan","The AI curve","Ready to Film",0.5),
+    P("Dymtro","Use Claude Code free forever","Ready for Editing",0.8),
+    P("Joshua","Podcast S4 · clip 2","Ready to Film",1.0),P("Joshua","Podcast S4 · clip 4","Awaiting Review",1.6),
+    P("Cindy","AI avatar A/B test","Editing in Progress",0.9)
+  ];
+  const I=(title,checked,type,note)=>({title,checked,type,note:note||""});
+  const creators=[
+    {name:"BRAD",shipped:0,planned:1,items:[I("GOOGLE BURIES",false,"Personal")]},
+    {name:"CHRIS",shipped:4,planned:8,items:[
+      I("FIND DISCOUNT CODE",false,"Personal","Parvez · Fri"),I("CREATE THIS EFFECT WITH AI",false,"Personal","Fri"),
+      I("OPEN SOURCE AI VIDEO GENERATOR",true,"Personal","Sumith"),I("MINIMAX",true,"Sponsor"),I("ENTER",true,"Sponsor"),
+      I("BLUEHOST (LONG FORM)",false,"Sponsor"),I("RELUME",false,"Sponsor","Parvez"),I("MANUS AI",true,"Sponsor","Parvez")]},
+    {name:"LINDSAY",shipped:2,planned:3,items:[
+      I("CLAUDE FOR SMALL BUSINESS",true,"Personal","Sumith"),I("PEOPLE ARE SELLING CLAUDE PLUGINS",false,"Personal","Thu"),I("ASANA",true,"Sponsor")]},
+    {name:"EMTECH",shipped:2,planned:3,items:[
+      I("HIDDEN AI TOOLS",true,"Personal","Parvez"),I("ASKED CHATGPT TO APPLY TO 1000 JOBS",true,"Personal","Parvez"),I("DOLA AI",false,"Sponsor","awaiting approval")]},
+    {name:"VALERI",shipped:2,planned:5,items:[
+      I("GIVE AI AGENTS A 3D WORKPLACE",true,"Personal"),I("MICROSOFT SOLVED CLAUDE'S BIGGEST PROBLEM",true,"Personal"),
+      I("HOTTEST JOB IN AI",false,"Personal","Abhishek"),I("STOP PROMPTING, DO THIS",false,"Personal","Fri"),I("DOOKIE",false,"Sponsor","awaiting script")]},
+    {name:"DUNCAN",shipped:1,planned:9,items:[
+      I("FIX YOUR SESSION LIMIT",false,"Personal","Fri"),I("WATCH THESE 3 VIDEOS",false,"Personal","Fri"),
+      I("BUILD LEAD LIST WITH CLAUDE",false,"Personal","Prabal"),I("CLAUDE TOKEN EXPLAINED",false,"Personal","Prabal"),
+      I("THE AI CURVE",false,"Personal","Sat"),I("BEGINNER TO ADVANCED CLAUDE CODE",false,"Personal","Sat"),
+      I("POKE",false,"Sponsor"),I("ENTER.PRO",true,"Sponsor","Mon"),I("BLINK.NEW",false,"Sponsor")]},
+    {name:"DYMTRO",shipped:1,planned:4,items:[
+      I("USE CLAUDE CODE FOR FREE FOREVER",true,"Personal"),I("HACKATHON WINNER OPEN-SOURCED CC",false,"Personal","Sumith"),
+      I("LEARN CLAUDE THIS WEEKEND",false,"Personal","Sumith"),I("APPLIED TO 1000 JOBS",false,"Personal","Sumith")]},
+    {name:"JONATHAN",shipped:2,planned:6,items:[
+      I("RUN 60+ AGENTS",true,"Personal"),I("THIS AI FIXES YOUR TOKEN PROBLEM",true,"Personal"),
+      I("GUIDE TO LEARN CLAUDE CODE",false,"Personal","Sat"),I("BURN LESS TOKEN",false,"Personal","Parvez"),
+      I("COPY COMPETITOR'S SITE",false,"Personal","Sat"),I("NVIDIA FREES 80+ MODELS",false,"Personal","Sat")]},
+    {name:"JOSHUA",shipped:0,planned:5,items:[
+      I("Topic 3 · Clip 2",false,"Edit"),I("Topic 2 · Clip 4",false,"Edit"),I("Topic 3 · Clip 3",false,"Edit"),
+      I("Topic 2 · Clip 6",false,"Edit"),I("Topic 3 · Clip 5",false,"Edit")]}
+  ].map(c=>({...c,blockId:null,anchors:{}}));
+  state.weeks=[{label:"Jun 15–20",current:true,creators,
+    totals:{planned:44,shipped:14,aiPlanned:39,aiShipped:14,normalPlanned:5,normalShipped:0,personalShipped:9,sponsorShipped:5}}];
+}
+
+loadAll();
+setInterval(loadAll,REFRESH_MS);
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "noocap-pipeline-command-center",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live dashboard for the NOOCAP Video Pipeline, Weekly KPIs, and Major Tasks Notion databases.",
+  "engines": { "node": ">=18" }
+}
