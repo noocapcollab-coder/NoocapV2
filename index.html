@@ -83,6 +83,30 @@
   .stage{flex:0 0 196px}
   .stagehead{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;letter-spacing:.02em;padding:5px 10px;border-radius:8px;margin-bottom:9px}
   .stagehead .sc{margin-left:auto;font-weight:600;opacity:.85}
+  /* unified board: creator filter + 4 columns */
+  .cfilter{display:flex;gap:7px;flex-wrap:wrap;margin:0 2px 15px}
+  .cchip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:99px;border:0.5px solid var(--line);background:var(--surface);font-size:12.5px;color:var(--muted);cursor:pointer;transition:.12s}
+  .cchip:hover{border-color:var(--line2)}
+  .cchip .dot{width:8px;height:8px;border-radius:50%}
+  .cchip .n{font-size:11px;color:var(--faint)}
+  .cchip.on{border-color:var(--accent);color:var(--text);background:var(--accent-soft)}
+  .cchip.on .n{color:var(--accent)}
+  .portalbtn{font-size:12px;color:var(--accent);cursor:pointer;border:0.5px solid var(--line);border-radius:8px;padding:3px 10px;white-space:nowrap}
+  .portalbtn:hover{border-color:var(--accent);background:var(--accent-soft)}
+  .board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;align-items:start;padding:0 2px}
+  .bcol{display:flex;flex-direction:column;gap:9px;border-radius:12px;transition:background .12s,box-shadow .12s;padding:2px}
+  .bcol.dragover{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
+  .colcards{display:flex;flex-direction:column;gap:8px;min-height:44px}
+  .colcards .card{margin-bottom:0}
+  .cmeta{display:flex;align-items:center;gap:7px;margin-top:2px}
+  .cmeta .who{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);min-width:0}
+  .cmeta .who .cdot2{width:7px;height:7px;border-radius:50%;flex:none}
+  .cmeta .who .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cmeta .pill{margin-left:auto}
+  .cmeta2{display:flex;align-items:center;gap:7px;margin-top:8px}
+  .cmeta2 .days{margin-left:0}
+  .cmeta2 .mv{margin-left:auto}
+  @media(max-width:760px){.board{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .stage{border-radius:12px;transition:background .12s,box-shadow .12s}
   .stage.dragover{background:var(--accent-soft);box-shadow:inset 0 0 0 1.5px var(--accent)}
   .stbody{min-height:30px}
@@ -96,6 +120,26 @@
   .mvmenu .mi:hover{background:var(--surface)}
   .mvmenu .mi .dot{width:8px;height:8px;border-radius:50%}
   .mvmenu .mi.head{color:var(--faint);font-size:11px;cursor:default;padding:4px 11px 6px}
+  /* focus view */
+  .fsec{margin:0 2px 24px}
+  .fsec .fh{display:flex;align-items:baseline;gap:9px;margin:0 2px 12px}
+  .fsec .fh .h{font-size:15px;font-weight:600}
+  .fsec .fh .s{color:var(--faint);font-size:13px}
+  .frow{display:flex;align-items:center;gap:11px;padding:11px 13px;border:0.5px solid var(--line);border-radius:12px;background:var(--surface);margin-bottom:8px;cursor:pointer;transition:.13s;box-shadow:var(--shadow)}
+  .frow:hover{border-color:var(--line2);transform:translateY(-1px)}
+  .frow .cdot{width:9px;height:9px;border-radius:50%;flex:none}
+  .frow .ft{flex:1;min-width:0;font-size:13px;font-weight:450;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .frow .who{color:var(--faint);font-size:11.5px;white-space:nowrap}
+  .chip{font-size:10px;padding:2.5px 8px;border-radius:7px;font-weight:700;white-space:nowrap;letter-spacing:.02em}
+  .rt{font-size:10px;padding:2.5px 8px;border-radius:7px;font-weight:600;white-space:nowrap;background:var(--surface2);color:var(--muted)}
+  .rt.warn{background:#FAEEDA;color:#854f0b}
+  .rt.danger{background:#FCEBEB;color:#a32d2d}
+  .erow{display:flex;align-items:center;gap:11px;margin-bottom:11px}
+  .erow .ename{width:96px;flex:none;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .erow .ebar{flex:1;height:9px;background:var(--surface2);border-radius:99px;overflow:hidden}
+  .erow .ebar i{display:block;height:100%;border-radius:99px;transition:width .4s}
+  .erow .ecount{width:118px;flex:none;text-align:right;font-size:11.5px;color:var(--faint);white-space:nowrap}
+  .erow .ecount b{color:var(--text);font-weight:600}
   /* weekly band */
   .wkbar{display:flex;align-items:center;gap:11px;margin:2px 2px 16px;flex-wrap:wrap}
   .wkbar .lab{color:var(--faint);font-size:13px}
@@ -162,6 +206,7 @@
     <div class="brand"><span class="mark"></span> NOOCAP</div>
     <div class="seg" id="seg">
       <button data-v="pipeline" class="on">Pipeline</button>
+      <button data-v="focus">Focus</button>
       <button data-v="weekly">Weekly</button>
     </div>
     <div class="sync">
@@ -172,6 +217,7 @@
 
   <div class="banner" id="banner"></div>
   <section id="pipeline"></section>
+  <section id="focus" style="display:none"></section>
   <section id="weekly" style="display:none"></section>
 </div>
 
@@ -200,7 +246,7 @@ const ccol=(n)=> CC[pretty(n)]||"#888780";
 const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,demo:false,lastOk:0};
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,demo:false,lastOk:0,pipeFilter:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
 async function loadAll(fresh){
@@ -224,8 +270,9 @@ setInterval(()=>{ if(!state.demo) setSync(); },1000);
 function render(){
   document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.v===state.view));
   document.getElementById("pipeline").style.display=state.view==="pipeline"?"":"none";
+  document.getElementById("focus").style.display=state.view==="focus"?"":"none";
   document.getElementById("weekly").style.display=state.view==="weekly"?"":"none";
-  if(state.view==="pipeline") renderPipeline(); else renderWeekly();
+  if(state.view==="pipeline") renderPipeline(); else if(state.view==="focus") renderFocus(); else renderWeekly();
 }
 
 function activeByCreator(){
@@ -260,41 +307,49 @@ function boardByCreator(){
 }
 function renderPipeline(){
   const root=document.getElementById("pipeline");
-  const groups=boardByCreator();
-  const total=groups.reduce((n,[,c])=>n+c.Film.length+c.Edit.length+c.Changes.length+c.Ready.length,0);
-  let attn=0; groups.forEach(([,c])=>{attn+=c.Changes.length;});
-  let html=`<div class="toprow"><span class="h">Pipeline</span><span class="s">${total} in production across ${groups.length} creators</span>`+
-    (attn?`<span class="stuck"><span class="sd"></span>${attn} in changes</span>`:``)+`</div>`;
-  if(!groups.length) html+=`<div class="empty">Nothing at film stage yet. Set a video to “6- To Film” in Notion and it shows up here.</div>`;
-  for(const [name,cols] of groups){
-    const tot=cols.Film.length+cols.Edit.length+cols.Changes.length+cols.Ready.length;
-    html+=`<div class="lane"><div class="lanehead" data-creator="${esc(name)}">
-        <span class="accent-dot" style="background:${ccol(name)}"></span>
-        <span class="nm">${esc(name)}</span><span class="ct">${tot}</span>
-        <span class="chev">›</span></div><div class="stagerow">`;
-    for(const col of COLS){
-      const items=cols[col].slice().sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
-      const c=CT[col];
-      html+=`<div class="stage" data-col="${col}" data-creator="${esc(name)}"><div class="stagehead" style="background:${c[0]};color:${c[1]}">${col}<span class="sc">${items.length}</span></div><div class="stbody thin">`;
-      for(const v of items){
-        const d=v.daysInStage,stk=v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS;
-        const tag=v.type?(TT[v.type]||null):null;
-        html+=`<div class="card" draggable="true" style="--ac:${c[1]}" data-page="${esc(v.id||"")}" data-url="${esc(v.url||"")}" data-col="${col}" data-title="${esc(v.title)}">
-          <div class="t">${esc(v.title)}</div>
-          <div class="meta">${tag?`<span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>`:`<span></span>`}
-          <span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span>
-          <span class="mv" data-mv>move ▾</span></div></div>`;
-      }
-      html+=`</div></div>`;
+  const items=boardItems();
+  const creators=[...new Set(items.map(v=>pretty(v.creator)))].sort((a,b)=>orderIdx(a)-orderIdx(b));
+  const cCount={}; for(const v of items){const k=pretty(v.creator);cCount[k]=(cCount[k]||0)+1;}
+  const filt=state.pipeFilter;
+  const shown=filt?items.filter(v=>pretty(v.creator)===filt):items;
+  const byCol={Film:[],Edit:[],Changes:[],Ready:[]};
+  for(const v of shown) byCol[v.col].push(v);
+  const total=shown.length, attn=byCol.Changes.length;
+  let html=`<div class="toprow"><span class="h">Pipeline</span>`+
+    `<span class="s">${filt?`${total} for ${esc(filt)}`:`${total} in production across ${creators.length} creators`}</span>`+
+    `<span style="margin-left:auto;display:flex;gap:12px;align-items:center">`+
+    (attn?`<span class="stuck" style="margin:0"><span class="sd"></span>${attn} in changes</span>`:``)+
+    (filt&&state.keys[filt]?`<span class="portalbtn" data-portal="${esc(filt)}">portal ↗</span>`:``)+
+    `</span></div>`;
+  // creator filter strip
+  html+=`<div class="cfilter"><span class="cchip ${filt?"":"on"}" data-creator="">All <span class="n">${items.length}</span></span>`+
+    creators.map(c=>`<span class="cchip ${filt===c?"on":""}" data-creator="${esc(c)}"><span class="dot" style="background:${ccol(c)}"></span>${esc(c)} <span class="n">${cCount[c]}</span></span>`).join("")+`</div>`;
+  if(!items.length){ html+=`<div class="empty">Nothing at film stage yet. Set a video to “6- To Film” in Notion and it shows up here.</div>`; root.innerHTML=html; wirePipeline(root); return; }
+  html+=`<div class="board">`;
+  for(const col of COLS){
+    const list=byCol[col].slice().sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
+    const c=CT[col];
+    html+=`<div class="bcol" data-col="${col}"><div class="stagehead" style="background:${c[0]};color:${c[1]}">${col}<span class="sc">${list.length}</span></div><div class="colcards">`;
+    for(const v of list){
+      const d=v.daysInStage,stk=d!=null&&d>=STUCK_DAYS;
+      const tag=v.type?(TT[v.type]||null):null;
+      html+=`<div class="card" draggable="true" style="--ac:${c[1]}" data-page="${esc(v.id||"")}" data-url="${esc(v.url||"")}" data-col="${col}" data-title="${esc(v.title)}">
+        <div class="t">${esc(v.title)}</div>
+        <div class="cmeta"><span class="who"><span class="cdot2" style="background:${ccol(v.creator)}"></span><span class="nm">${esc(pretty(v.creator))}</span></span>
+        ${tag?`<span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>`:``}</div>
+        <div class="cmeta2"><span class="days ${stk?"warn":""}">${stk?"⚠ ":""}${d!=null?d.toFixed(1)+"d":""}</span>
+        <span class="mv" data-mv>move ▾</span></div></div>`;
     }
     html+=`</div></div>`;
   }
+  html+=`</div>`;
   root.innerHTML=html;
   wirePipeline(root);
 }
 
 function wirePipeline(root){
-  // open in Notion on card body click (but not when starting a drag or hitting "move")
+  root.querySelectorAll(".cchip").forEach(ch=>ch.onclick=()=>{state.pipeFilter=ch.dataset.creator||null;renderPipeline();});
+  const pb=root.querySelector("[data-portal]"); if(pb)pb.onclick=()=>openDrawer(pb.dataset.portal);
   root.querySelectorAll(".card").forEach(el=>{
     el.addEventListener("click",e=>{
       if(e.target.closest("[data-mv]"))return;
@@ -307,9 +362,9 @@ function wirePipeline(root){
     });
     el.addEventListener("dragend",()=>el.classList.remove("dragging"));
   });
-  root.querySelectorAll(".stage").forEach(st=>{
+  root.querySelectorAll(".bcol").forEach(st=>{
     st.addEventListener("dragover",e=>{e.preventDefault();st.classList.add("dragover");});
-    st.addEventListener("dragleave",()=>st.classList.remove("dragover"));
+    st.addEventListener("dragleave",e=>{if(!st.contains(e.relatedTarget))st.classList.remove("dragover");});
     st.addEventListener("drop",e=>{
       e.preventDefault();st.classList.remove("dragover");
       let p;try{p=JSON.parse(e.dataTransfer.getData("text/plain"));}catch{return;}
@@ -323,7 +378,6 @@ function wirePipeline(root){
       openMoveMenu(card.dataset.page,card.dataset.title,card.dataset.col,b);
     });
   });
-  root.querySelectorAll(".lanehead").forEach(el=>el.onclick=()=>openDrawer(el.dataset.creator));
 }
 
 function openMoveMenu(page,title,from,anchor){
@@ -352,6 +406,72 @@ async function moveCard(page,title,from,to){
     alert("Couldn't move that one — "+(err.message||err)+"\nThe board will refresh to show what's actually in Notion.");
     loadAll(true);
   }
+}
+
+// ---- Focus: one screen for "what needs me + who's loaded" --------------------
+function boardItems(){
+  const out=[];
+  for(const v of state.pipeline){
+    if(!v.creator||HIDE_CREATORS.has(String(v.creator).toUpperCase()))continue;
+    const col=colOf(v.rawStatus); if(!col)continue;
+    out.push({...v,col});
+  }
+  return out;
+}
+function overdueDays(due){
+  if(!due)return null;
+  const d=new Date(due);if(isNaN(d))return null;
+  const today=new Date();today.setHours(0,0,0,0);
+  const diff=Math.floor((today-d)/864e5);
+  return diff>0?diff:null;
+}
+function renderFocus(){
+  const root=document.getElementById("focus");
+  const items=boardItems();
+  // --- attention feed ---
+  const flagged=[];
+  for(const v of items){
+    const reasons=[];
+    const od=overdueDays(v.dueDate);
+    if(od!=null) reasons.push({t:`overdue ${od}d`,c:"danger",w:1000+od});
+    if(v.col==="Changes") reasons.push({t:"in changes",c:"warn",w:200});
+    if(v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS) reasons.push({t:`${v.daysInStage.toFixed(0)}d in stage`,c:"warn",w:v.daysInStage});
+    if(reasons.length) flagged.push({v,reasons,score:Math.max(...reasons.map(r=>r.w))});
+  }
+  flagged.sort((a,b)=>b.score-a.score);
+  let html=`<div class="fsec"><div class="fh"><span class="h">Needs attention</span><span class="s">${flagged.length} video${flagged.length===1?"":"s"} flagged — overdue, in changes, or sitting too long</span></div>`;
+  if(!flagged.length) html+=`<div class="empty">Nothing's stuck right now. Whole board is moving.</div>`;
+  for(const {v,reasons} of flagged){
+    const ct=CT[v.col];
+    html+=`<div class="frow" data-url="${esc(v.url||"")}">
+      <span class="cdot" style="background:${ccol(v.creator)}"></span>
+      <span class="ft">${esc(v.title)}</span>
+      <span class="chip" style="background:${ct[0]};color:${ct[1]}">${v.col}</span>
+      ${reasons.map(r=>`<span class="rt ${r.c}">${esc(r.t)}</span>`).join("")}
+      <span class="who">${esc(pretty(v.creator))}${v.editor?" · "+esc(v.editor):""}</span></div>`;
+  }
+  html+=`</div>`;
+  // --- editor load ---
+  const byEd=new Map();
+  for(const v of items){
+    const e=v.editor||"Unassigned";
+    if(!byEd.has(e))byEd.set(e,{total:0,changes:0});
+    const o=byEd.get(e);o.total++;if(v.col==="Changes")o.changes++;
+  }
+  const eds=[...byEd.entries()].sort((a,b)=>b[1].total-a[1].total);
+  const max=eds.reduce((m,[,o])=>Math.max(m,o.total),0)||1;
+  html+=`<div class="fsec"><div class="fh"><span class="h">Editor load</span><span class="s">${items.length} videos in production across ${eds.length} editor${eds.length===1?"":"s"}</span></div>`;
+  if(!eds.length) html+=`<div class="empty">No videos in production right now.</div>`;
+  for(const [name,o] of eds){
+    const col=o.total>=7?"var(--danger)":o.total>=4?"var(--warn)":"var(--ok)";
+    html+=`<div class="erow">
+      <span class="ename">${esc(name)}</span>
+      <span class="ebar"><i style="width:${Math.round(o.total/max*100)}%;background:${col}"></i></span>
+      <span class="ecount"><b>${o.total}</b> active${o.changes?` · ${o.changes} in changes`:""}</span></div>`;
+  }
+  html+=`</div>`;
+  root.innerHTML=html;
+  root.querySelectorAll(".frow").forEach(el=>el.onclick=()=>{const u=el.dataset.url;if(u)window.open(u,"_blank");});
 }
 
 const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
