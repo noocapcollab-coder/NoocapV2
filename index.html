@@ -268,26 +268,26 @@ const ccol=(n)=> CC[pretty(n)]||"#888780";
 const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,demo:false,lastOk:0,pipeFilter:null};
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
 async function loadAll(fresh){
   let okAny=false,err=null;
   try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
   try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;okAny=true;}catch(e){err=err||e;}
-  if(!okAny){ if(!state.demo) loadDemo(); showBanner("Preview mode — showing a baked snapshot of the Jun 15–20 plan. Deploy to Vercel with your NOTION_TOKEN and every view goes live."); }
-  else{ state.demo=false; hideBanner(); state.lastOk=Date.now(); }
+  if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
+  else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
-  if(state.demo){dot.className="dot stale";t.textContent="preview";return;}
+  if(state.offline){dot.className="dot stale";t.textContent="offline · retrying…";return;}
   if(!state.lastOk){dot.className="dot";t.textContent="connecting…";return;}
   const ago=Math.round((Date.now()-state.lastOk)/1000);
   dot.className="dot"+(ago>REFRESH_MS/1000+8?" stale":"");
   t.textContent=ago<5?"live · just now":("synced "+ago+"s ago");
 }
-setInterval(()=>{ if(!state.demo) setSync(); },1000);
+setInterval(setSync,1000);
 
 function render(animate){
   document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.v===state.view));
@@ -347,7 +347,7 @@ function renderPipeline(){
   // creator filter strip
   html+=`<div class="cfilter"><span class="cchip ${filt?"":"on"}" data-creator="">All <span class="n">${items.length}</span></span>`+
     creators.map(c=>`<span class="cchip ${filt===c?"on":""}" data-creator="${esc(c)}"><span class="dot" style="background:${ccol(c)}"></span>${esc(c)} <span class="n">${cCount[c]}</span></span>`).join("")+`</div>`;
-  if(!items.length){ html+=`<div class="empty">Nothing at film stage yet. Set a video to “6- To Film” in Notion and it shows up here.</div>`; root.innerHTML=html; wirePipeline(root); return; }
+  if(!items.length){ html+=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. Your board fills back in the moment it reconnects.":"Nothing at film stage yet. Set a video to “6- To Film” in Notion and it shows up here."}</div>`; root.innerHTML=html; wirePipeline(root); return; }
   html+=`<div class="board">`;
   for(const col of COLS){
     const list=byCol[col].slice().sort((a,b)=>(b.daysInStage||0)-(a.daysInStage||0));
@@ -500,7 +500,7 @@ function renderFocus(){
 const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
 function renderWeekly(){
   const root=document.getElementById("weekly");
-  if(!state.weeks.length){root.innerHTML=`<div class="empty">No weekly plan found.</div>`;return;}
+  if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];const t=w.totals;
   const comp=t.planned?Math.round(t.shipped/t.planned*100):0;
   const aiP=t.aiPlanned?Math.round(t.aiShipped/t.aiPlanned*100):0;
@@ -637,58 +637,6 @@ function hideBanner(){document.getElementById("banner").classList.remove("show")
 document.getElementById("seg").onclick=(e)=>{const b=e.target.closest("button");if(!b)return;state.view=b.dataset.v;render(true);};
 document.getElementById("refresh").onclick=loadAll;
 
-/* ---------- preview snapshot (real Jun 15–20 plan; only used when API is unreachable) ---------- */
-function loadDemo(){
-  state.demo=true;
-  state.keys={Brad:"brad-8103212a67d23310",Lindsay:"lindsay-2fd26f3e7a617439",Cindy:"cindy-7dc96184bcddd6a1",
-    Chris:"chris-29d41aae7db6489d",Duncan:"duncan-650480c11f28e5bf",Joshua:"joshua-9740c5a03cff580e",
-    Valeri:"valeri-997a4f8fc91e8db3",Emtech:"emtech-47434656f30f6b20"};
-  const SR={Filming:"6- To Film",Editing:"7- In Edit",Review:"8- Changes",Ready:"11- Ready",Scripting:"4- Script Draft"};
-  const P=(creator,title,status,daysInStage,type)=>({creator,title,status,rawStatus:SR[status]||status,daysInStage,type:type||"Personal",url:"",id:""});
-  state.pipeline=[
-    P("Brad","Google buries small creators","Editing",1.2),P("Brad","Faceless brand hooks","Editing",0.6),
-    P("Chris","Open source AI video generator","Review",2.3),P("Chris","Create this effect with AI","Editing",0.9),P("Chris","Bluehost long form","Filming",1.0,"Sponsor"),
-    P("Lindsay","Claude for small business","Ready",0.4),P("Lindsay","People are selling Claude plugins","Scripting",2.7),
-    P("Emtech","Hidden AI tools","Editing",1.1),P("Emtech","Dola AI","Review",3.4,"Sponsor"),
-    P("Valeri","Hottest job in AI isn't what you think","Review",5.1),P("Valeri","Stop prompting, do this instead","Editing",0.7),
-    P("Duncan","Build entire lead list with Claude","Review",2.0),P("Duncan","Claude token explained","Editing",1.0),P("Duncan","The AI curve","Filming",0.5),
-    P("Dymtro","Use Claude Code free forever","Editing",0.8),
-    P("Joshua","Podcast S4 · clip 2","Filming",1.0),P("Joshua","Podcast S4 · clip 4","Review",1.6),
-    P("Cindy","AI avatar A/B test","Editing",0.9)
-  ];
-  const I=(title,checked,type,note)=>({title,checked,type,note:note||""});
-  const creators=[
-    {name:"BRAD",shipped:0,planned:1,items:[I("GOOGLE BURIES",false,"Personal")]},
-    {name:"CHRIS",shipped:4,planned:8,items:[
-      I("FIND DISCOUNT CODE",false,"Personal","Parvez · Fri"),I("CREATE THIS EFFECT WITH AI",false,"Personal","Fri"),
-      I("OPEN SOURCE AI VIDEO GENERATOR",true,"Personal","Sumith"),I("MINIMAX",true,"Sponsor"),I("ENTER",true,"Sponsor"),
-      I("BLUEHOST (LONG FORM)",false,"Sponsor"),I("RELUME",false,"Sponsor","Parvez"),I("MANUS AI",true,"Sponsor","Parvez")]},
-    {name:"LINDSAY",shipped:2,planned:3,items:[
-      I("CLAUDE FOR SMALL BUSINESS",true,"Personal","Sumith"),I("PEOPLE ARE SELLING CLAUDE PLUGINS",false,"Personal","Thu"),I("ASANA",true,"Sponsor")]},
-    {name:"EMTECH",shipped:2,planned:3,items:[
-      I("HIDDEN AI TOOLS",true,"Personal","Parvez"),I("ASKED CHATGPT TO APPLY TO 1000 JOBS",true,"Personal","Parvez"),I("DOLA AI",false,"Sponsor","awaiting approval")]},
-    {name:"VALERI",shipped:2,planned:5,items:[
-      I("GIVE AI AGENTS A 3D WORKPLACE",true,"Personal"),I("MICROSOFT SOLVED CLAUDE'S BIGGEST PROBLEM",true,"Personal"),
-      I("HOTTEST JOB IN AI",false,"Personal","Abhishek"),I("STOP PROMPTING, DO THIS",false,"Personal","Fri"),I("DOOKIE",false,"Sponsor","awaiting script")]},
-    {name:"DUNCAN",shipped:1,planned:9,items:[
-      I("FIX YOUR SESSION LIMIT",false,"Personal","Fri"),I("WATCH THESE 3 VIDEOS",false,"Personal","Fri"),
-      I("BUILD LEAD LIST WITH CLAUDE",false,"Personal","Prabal"),I("CLAUDE TOKEN EXPLAINED",false,"Personal","Prabal"),
-      I("THE AI CURVE",false,"Personal","Sat"),I("BEGINNER TO ADVANCED CLAUDE CODE",false,"Personal","Sat"),
-      I("POKE",false,"Sponsor"),I("ENTER.PRO",true,"Sponsor","Mon"),I("BLINK.NEW",false,"Sponsor")]},
-    {name:"DYMTRO",shipped:1,planned:4,items:[
-      I("USE CLAUDE CODE FOR FREE FOREVER",true,"Personal"),I("HACKATHON WINNER OPEN-SOURCED CC",false,"Personal","Sumith"),
-      I("LEARN CLAUDE THIS WEEKEND",false,"Personal","Sumith"),I("APPLIED TO 1000 JOBS",false,"Personal","Sumith")]},
-    {name:"JONATHAN",shipped:2,planned:6,items:[
-      I("RUN 60+ AGENTS",true,"Personal"),I("THIS AI FIXES YOUR TOKEN PROBLEM",true,"Personal"),
-      I("GUIDE TO LEARN CLAUDE CODE",false,"Personal","Sat"),I("BURN LESS TOKEN",false,"Personal","Parvez"),
-      I("COPY COMPETITOR'S SITE",false,"Personal","Sat"),I("NVIDIA FREES 80+ MODELS",false,"Personal","Sat")]},
-    {name:"JOSHUA",shipped:0,planned:5,items:[
-      I("Topic 3 · Clip 2",false,"Edit"),I("Topic 2 · Clip 4",false,"Edit"),I("Topic 3 · Clip 3",false,"Edit"),
-      I("Topic 2 · Clip 6",false,"Edit"),I("Topic 3 · Clip 5",false,"Edit")]}
-  ].map(c=>({...c,blockId:null,anchors:{}}));
-  state.weeks=[{label:"Jun 15–20",current:true,creators,
-    totals:{planned:44,shipped:14,aiPlanned:39,aiShipped:14,normalPlanned:5,normalShipped:0,personalShipped:9,sponsorShipped:5}}];
-}
 
 loadAll();
 setInterval(loadAll,REFRESH_MS);
