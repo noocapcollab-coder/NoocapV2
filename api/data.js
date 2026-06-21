@@ -15,13 +15,14 @@ export default async function handler(req, res) {
   if (!token) { res.status(500).json({ ok: false, error: "Missing NOTION_TOKEN environment variable." }); return; }
   try {
     const now = Date.now();
-    if (!cache || now - cache.at >= CACHE_TTL_MS) {
+    if (!cache || now - cache.at >= CACHE_TTL_MS || (req.query && req.query.fresh)) {
       const { rows, boards, errors } = await readBoards(token);
       const pipeline = rows
-        .filter((r) => !r.posted && r.status !== "Archived")
+        .filter((r) => r.status !== "Archived")
         .map((r) => ({
           id: r.id, url: r.url, title: r.title, creator: r.creator,
           status: r.status, rawStatus: r.rawStatus, type: r.type, editor: r.editor,
+          posted: r.posted,
           daysInStage: r.daysInStage, dueDate: r.dueDate, editedLink: r.editedLink,
           postedLink: r.postedLink, lastEdited: r.updated,
         }));
