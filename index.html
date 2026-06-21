@@ -455,10 +455,10 @@ function renderFocus(){
   const flagged=[];
   for(const v of items){
     const reasons=[];
-    const od=overdueDays(v.dueDate);
+    const od=v.col==="Ready"?null:overdueDays(v.dueDate);
     if(od!=null) reasons.push({t:`overdue ${od}d`,c:"danger",w:1000+od});
     if(v.col==="Changes") reasons.push({t:"in changes",c:"warn",w:200});
-    if(v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS) reasons.push({t:`${v.daysInStage.toFixed(0)}d in stage`,c:"warn",w:v.daysInStage});
+    if(v.col!=="Ready"&&v.daysInStage!=null&&v.daysInStage>=STUCK_DAYS) reasons.push({t:`${v.daysInStage.toFixed(0)}d in stage`,c:"warn",w:v.daysInStage});
     if(reasons.length) flagged.push({v,reasons,score:Math.max(...reasons.map(r=>r.w))});
   }
   flagged.sort((a,b)=>b.score-a.score);
