@@ -68,6 +68,8 @@
   .card::before{content:"";position:absolute;left:5px;top:10px;bottom:10px;width:3px;border-radius:3px;background:var(--ac,transparent);box-shadow:0 0 8px var(--ac,transparent)}
   .card .t{font-size:12.5px;line-height:1.35;margin-bottom:8px;font-weight:450}
   .card .meta{display:flex;align-items:center;gap:7px}
+  .card.carry{opacity:.74}
+  .card.carry::before{opacity:.5;box-shadow:none}
   .pill{font-size:10px;padding:2.5px 8px;border-radius:8px;white-space:nowrap;font-weight:600;letter-spacing:.01em}
   .days{margin-left:auto;font-size:10.5px;color:var(--faint);white-space:nowrap;font-weight:500;font-family:var(--mono)}
   .days.warn{color:var(--warn)}
@@ -285,6 +287,8 @@ function liveLookup(){
   return m;
 }
 const liveOf=(lk,creator,title)=>lk.get(norm(creator)+"|"+norm(title))||null;
+const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
+const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
 
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null};
 
@@ -297,7 +301,7 @@ async function loadAll(fresh){
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
-  if(!state.offline) carryOver();
+  if(!state.offline){ carryOver(); migrateCarried(); }
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
@@ -525,11 +529,12 @@ function renderWeekly(){
   const lk=liveLookup();
   // done = manually ticked OR the matching video is Ready / To-Post / Posted
   const isDone=(cName,it)=>{const lv=liveOf(lk,cName,it.title);return it.checked||(lv&&lv.rank>=DONE_RANK);};
-  // recompute weekly totals live, so the band reflects real pipeline status
+  // recompute weekly totals live — carried-over videos ride along but don't raise the target
   const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalShipped:0,sponsorShipped:0};
   for(const c of w.creators){
     const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
     for(const it of c.items){
+      if(isCarried(it))continue;                 // leftover from last week → not part of this week's target
       t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
       if(isDone(c.name,it)){ t.shipped++; if(normal)t.normalShipped++;else t.aiShipped++;
         if((it.type||"")==="Sponsor")t.sponsorShipped++; else if(!normal)t.personalShipped++; }
@@ -553,21 +558,24 @@ function renderWeekly(){
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
-    const cShipped=c.items.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
+    const fresh=c.items.filter(it=>!isCarried(it));
+    const cShipped=fresh.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
     html+=`<div class="col"><div class="accent" style="background:${ccol(c.name)}"></div>
       <div class="colhead plain"><span class="cdot" style="background:${ccol(c.name)}"></span>
-      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${c.items.length}</span></div><div class="cbody">`;
+      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${fresh.length}</span></div><div class="cbody">`;
     for(const it of c.items){
       const tag=TT[it.type||(isNormal?"Edit":"Personal")]||TT.Personal;
       const lv=liveOf(lk,c.name,it.title);
       const done=isDone(c.name,it);
+      const carried=isCarried(it);
       let stat;
       if(done) stat= (lv&&lv.status==="Posted")||it.checked ? "✓ posted" : "✓ ready";
       else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
-      else stat= it.note?esc(it.note):"planned";
-      html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
+      else { const cn=cleanNote(it.note); stat= cn||"planned"; }
+      const carryChip=carried?`<span class="pill" style="background:var(--faint);color:var(--muted)">↩ last wk</span>`:"";
+      html+=`<div class="card ${done?"done":""} ${carried?"carry":""}" style="--ac:${tag[1]};cursor:default">
         <div class="t">${esc(it.title)}</div>
-        <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
+        <div class="meta">${carryChip}<span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
         <span class="days">${stat}</span></div></div>`;
     }
     if(!c.items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
@@ -734,10 +742,11 @@ async function carryOver(){
           }catch(e){/* if heading fails, items still append under the toggle */}
         }
         for(const it of items){
+          const cnote=it.note?it.note+" ⤴":"⤴"; // ⤴ marks this as a carry-over, kept out of the target
           try{
             const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
-              body:JSON.stringify({parentBlockId:cc.blockId,afterBlockId:after,title:it.title,note:it.note,checked:false})});
-            cc.items.push({title:it.title,note:it.note,checked:false,type:sec==="SPONSOR"?"Sponsor":"Personal",blockId:res.blockId});
+              body:JSON.stringify({parentBlockId:cc.blockId,afterBlockId:after,title:it.title,note:cnote,checked:false})});
+            cc.items.push({title:it.title,note:cnote,checked:false,type:sec==="SPONSOR"?"Sponsor":"Personal",blockId:res.blockId});
             after=res.blockId||after; cc.anchors[sec]=after; n++;
           }catch(e){/* skip this one, keep going */}
         }
@@ -750,6 +759,32 @@ async function carryOver(){
 }
 
 function showScrim(){document.getElementById("scrim").classList.add("show");}
+
+// One-time: the first carry-over ran before the marker existed, so those items
+// in the upcoming week aren't tagged yet. Tag the ones that match a still-in-
+// production video so they drop out of the target. Runs once per browser.
+let migrated=false;
+async function migrateCarried(){
+  if(migrated||state.offline||!state.pipeline.length||!state.weeks.length)return;
+  try{ if(localStorage.getItem("noocap_carry_migrated_v1")){migrated=true;return;} }catch(e){}
+  const {next}=weekByDate(); if(!next){return;}
+  migrated=true;
+  const lk=liveLookup(); let any=false;
+  for(const c of next.w.creators){
+    for(const it of c.items){
+      if(isCarried(it))continue;
+      const lv=liveOf(lk,c.name,it.title);
+      if(!lv||lv.rank>=DONE_RANK)continue;   // only still-in-production leftovers
+      try{
+        await getJSON("/api/mark-carried",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({blockId:it.blockId})});
+        it.note=it.note?it.note+" ⤴":"⤴"; any=true;
+      }catch(e){/* skip */}
+    }
+  }
+  try{localStorage.setItem("noocap_carry_migrated_v1","1");}catch(e){}
+  if(any&&state.view==="weekly")renderWeekly();
+}
 function closeOverlays(){document.getElementById("scrim").classList.remove("show");
   document.getElementById("drawer").classList.remove("show");document.getElementById("modal").classList.remove("show");}
 document.getElementById("scrim").onclick=closeOverlays;
