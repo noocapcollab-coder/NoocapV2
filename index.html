@@ -292,7 +292,8 @@ async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json(
 async function loadAll(fresh){
   let okAny=false,err=null;
   try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
-  try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;okAny=true;}catch(e){err=err||e;}
+  try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;
+    if(!state.weekPicked&&state.weeks.length)state.wkIdx=defaultWeekIdx();okAny=true;}catch(e){err=err||e;}
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
@@ -574,7 +575,7 @@ function renderWeekly(){
   }
   html+=`</div>`;
   root.innerHTML=html;
-  document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;renderWeekly();};
+  document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
 }
 
@@ -667,51 +668,85 @@ async function submitPicks(creator,isNormal){
   renderWeekly(); setTimeout(loadAll,1200);
 }
 
-// Automatic carry-over: when a new week is current, bring forward last week's
-// videos that are still in production (matched in the pipeline and not yet
-// Ready/To-Post/Posted). Idempotent — dedupes by title against the current
-// week, and a localStorage flag keeps it to once per flip per browser.
-let carriedOver=false;
+// Automatic weekly carry-over.
+// Weeks roll Mon–Sat; the rollover fires from the Sunday before the next week
+// starts. When it does, every still-in-production video from the week that's
+// ending (matched in the pipeline, not yet Ready/To-Post/Posted) is copied into
+// the upcoming week. Idempotent: dedupes by title and a localStorage flag keeps
+// it to once per flip per browser. Personal/Sponsor headings are created in the
+// upcoming week so the type grouping survives a reload.
+const DAY_MS=86400000;
+function weekByDate(){
+  const today=Date.now();
+  const arr=state.weeks.map((w,i)=>({w,i})).sort((a,b)=>a.w.sortKey-b.w.sortKey);
+  let cur=null;
+  for(const x of arr){ if(x.w.sortKey<=today) cur=x; }              // latest week already started
+  const next=cur?arr.find(x=>x.w.sortKey>cur.w.sortKey)||null:(arr[0]||null);
+  const rolloverActive=!!(cur&&next&&today>=next.w.sortKey-DAY_MS); // Sunday before next week → on
+  return {cur,next,rolloverActive};
+}
+function defaultWeekIdx(){
+  const {cur,next,rolloverActive}=weekByDate();
+  if(rolloverActive&&next)return next.i;   // it's the weekend — show the week you're planning
+  if(cur)return cur.i;                      // mid-week — show the current week
+  return 0;
+}
+let carryFlag="",carryBusy=false;
 async function carryOver(){
-  if(carriedOver||state.offline)return;
-  if(!state.pipeline.length||state.weeks.length<2)return; // wait for real data
-  const curIdx=state.weeks.findIndex(w=>w.current);
-  if(curIdx<=0){carriedOver=true;return;}              // no prior week to pull from
-  const cur=state.weeks[curIdx], prev=state.weeks[curIdx-1];
-  carriedOver=true;
-  let flag="";
-  try{flag="noocap_carry::"+prev.label+"=>"+cur.label;
-    if(localStorage.getItem(flag))return;}catch(e){flag="";}
-  const lk=liveLookup();
-  const have=new Map();
-  for(const c of cur.creators) have.set(norm(c.name),new Set(c.items.map(it=>norm(it.title))));
-  const jobs=[];
-  for(const pc of prev.creators){
-    for(const it of pc.items){
-      const lv=liveOf(lk,pc.name,it.title);
-      if(!lv||lv.rank>=DONE_RANK)continue;             // no match, or already done → skip
-      const seen=have.get(norm(pc.name));
-      if(seen&&seen.has(norm(it.title)))continue;       // already in this week
-      const cc=cur.creators.find(c=>norm(c.name)===norm(pc.name));
-      if(!cc||!cc.blockId)continue;                     // can't write (preview / no section)
-      jobs.push({cc,title:it.title,type:it.type||"Personal",note:it.note||""});
-      seen&&seen.add(norm(it.title));
+  if(carryBusy||state.offline||!state.pipeline.length||state.weeks.length<2)return;
+  const {cur,next,rolloverActive}=weekByDate();
+  if(!cur||!next||!rolloverActive)return;            // not the weekend yet, nothing to roll
+  const fromW=cur.w, toW=next.w;
+  const flag="noocap_carry::"+fromW.label+"=>"+toW.label;
+  if(carryFlag===flag)return;
+  try{ if(localStorage.getItem(flag)){carryFlag=flag;return;} }catch(e){}
+  carryBusy=true;
+  try{
+    const lk=liveLookup();
+    const have=new Map();
+    for(const c of toW.creators) have.set(norm(c.name),new Set(c.items.map(it=>norm(it.title))));
+    // group unfinished carry items per creator per section
+    const plan=new Map(); // creatorName -> {PERSONAL:[],SPONSOR:[]}
+    for(const fc of fromW.creators){
+      for(const it of fc.items){
+        const lv=liveOf(lk,fc.name,it.title);
+        if(!lv||lv.rank>=DONE_RANK)continue;                 // no pipeline match, or already done
+        const seen=have.get(norm(fc.name));
+        if(seen&&seen.has(norm(it.title)))continue;          // already in upcoming week
+        const sec=(it.type==="Sponsor")?"SPONSOR":"PERSONAL";
+        if(!plan.has(fc.name))plan.set(fc.name,{PERSONAL:[],SPONSOR:[]});
+        plan.get(fc.name)[sec].push({title:it.title,note:it.note||""});
+        seen&&seen.add(norm(it.title));
+      }
     }
-  }
-  if(!jobs.length){try{flag&&localStorage.setItem(flag,"1");}catch(e){}return;}
-  let n=0;
-  for(const j of jobs){
-    const sec=j.type==="Sponsor"?"SPONSOR":"PERSONAL";
-    const after=j.cc.anchors[sec]||j.cc.anchors.NONE||j.cc.anchors.PERSONAL||j.cc.anchors.SPONSOR||null;
-    try{
-      const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({parentBlockId:j.cc.blockId,afterBlockId:after,title:j.title,note:j.note,checked:false})});
-      j.cc.items.push({title:j.title,note:j.note,checked:false,type:j.type,blockId:res.blockId});
-      j.cc.anchors[sec]=res.blockId||after; n++;
-    }catch(e){/* skip individual failures, try the rest */}
-  }
-  try{flag&&localStorage.setItem(flag,"1");}catch(e){}
-  if(n){toast(n+" unfinished rolled into "+cur.label); if(state.view==="weekly")renderWeekly();}
+    let n=0;
+    for(const [cName,secs] of plan){
+      const cc=toW.creators.find(c=>norm(c.name)===norm(cName));
+      if(!cc||!cc.blockId)continue;
+      for(const sec of ["PERSONAL","SPONSOR"]){
+        const items=secs[sec]; if(!items.length)continue;
+        let after=cc.anchors[sec];
+        if(!after){                                          // build the section heading first
+          try{
+            const h=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({parentBlockId:cc.blockId,afterBlockId:cc.anchors.SPONSOR||cc.anchors.PERSONAL||null,heading:sec})});
+            after=h.blockId; cc.anchors[sec]=h.blockId;
+          }catch(e){/* if heading fails, items still append under the toggle */}
+        }
+        for(const it of items){
+          try{
+            const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({parentBlockId:cc.blockId,afterBlockId:after,title:it.title,note:it.note,checked:false})});
+            cc.items.push({title:it.title,note:it.note,checked:false,type:sec==="SPONSOR"?"Sponsor":"Personal",blockId:res.blockId});
+            after=res.blockId||after; cc.anchors[sec]=after; n++;
+          }catch(e){/* skip this one, keep going */}
+        }
+      }
+    }
+    carryFlag=flag;
+    try{localStorage.setItem(flag,"1");}catch(e){}
+    if(n){toast(n+" unfinished rolled into "+toW.label); if(state.view==="weekly")renderWeekly();}
+  }finally{ carryBusy=false; }
 }
 
 function showScrim(){document.getElementById("scrim").classList.add("show");}
