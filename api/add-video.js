@@ -49,19 +49,24 @@ export default async function handler(req, res) {
   const note = (body.note || "").trim();
   const checked = !!body.checked;
 
-  if (!parentBlockId || !rawTitle) {
+  if (!parentBlockId || (!rawTitle && !body.heading)) {
     res.status(400).json({ ok: false, error: "parentBlockId and title are required." });
     return;
   }
 
   const content = note ? `${rawTitle} (${note})` : rawTitle;
 
+  // Optional: create a section heading (PERSONAL / SPONSOR) instead of a checkbox.
+  // Used by the weekly carry-over to build the section in an empty upcoming week
+  // so Personal/Sponsor grouping survives a reload.
+  const heading = body.heading ? (String(body.heading).toUpperCase() === "SPONSOR" ? "SPONSOR" : "PERSONAL") : null;
+
+  const childBlock = heading
+    ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: heading } }] } }
+    : { object: "block", type: "to_do", to_do: { rich_text: [{ type: "text", text: { content: content.slice(0, 2000) } }], checked } };
+
   const payload = {
-    children: [{
-      object: "block",
-      type: "to_do",
-      to_do: { rich_text: [{ type: "text", text: { content: content.slice(0, 2000) } }], checked },
-    }],
+    children: [childBlock],
     ...(afterBlockId ? { after: afterBlockId } : {}),
   };
 
