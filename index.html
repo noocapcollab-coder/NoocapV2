@@ -569,7 +569,8 @@ function openPicker(creatorName){
   const creator=[...w.creators].find(c=>c.name===creatorName);
   if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
   const scheduled=new Set(creator.items.map(it=>norm(it.title)));
-  const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&v.status!=="Posted").sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
+  const PICK_STAGES=new Set(["Idea","Scripting","Filming","Editing","Review"]);
+  const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&PICK_STAGES.has(v.status)).sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
   const isNormal=["JOSHUA","NUEL","NEUL"].includes(creatorName);
   const m=document.getElementById("modal");
   let rows=cands.map((v,i)=>{
