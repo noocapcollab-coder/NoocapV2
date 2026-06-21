@@ -694,9 +694,9 @@ function weekByDate(){
   return {cur,next,rolloverActive};
 }
 function defaultWeekIdx(){
-  const {cur,next,rolloverActive}=weekByDate();
-  if(rolloverActive&&next)return next.i;   // it's the weekend — show the week you're planning
-  if(cur)return cur.i;                      // mid-week — show the current week
+  const {cur,next}=weekByDate();
+  if(cur)return cur.i;                      // always open on the week in progress
+  if(next)return next.i;
   return 0;
 }
 let carryFlag="",carryBusy=false;
@@ -766,15 +766,21 @@ function showScrim(){document.getElementById("scrim").classList.add("show");}
 let migrated=false;
 async function migrateCarried(){
   if(migrated||state.offline||!state.pipeline.length||!state.weeks.length)return;
-  try{ if(localStorage.getItem("noocap_carry_migrated_v1")){migrated=true;return;} }catch(e){}
-  const {next}=weekByDate(); if(!next){return;}
+  try{ if(localStorage.getItem("noocap_carry_migrated_v3")){migrated=true;return;} }catch(e){}
+  const {cur,next}=weekByDate(); if(!cur||!next){return;}
   migrated=true;
-  const lk=liveLookup(); let any=false;
+  // A video in the upcoming week is a carry-over if last week's plan held the
+  // same title for that creator — true whether it's still in production or has
+  // since been posted. That's what keeps a now-posted leftover out of the target.
+  const src=new Map();
+  for(const c of cur.w.creators) src.set(norm(c.name),new Set(c.items.map(it=>norm(it.title))));
+  let any=false;
   for(const c of next.w.creators){
+    const seen=src.get(norm(c.name));
+    if(!seen)continue;
     for(const it of c.items){
       if(isCarried(it))continue;
-      const lv=liveOf(lk,c.name,it.title);
-      if(!lv||lv.rank>=DONE_RANK)continue;   // only still-in-production leftovers
+      if(!seen.has(norm(it.title)))continue;   // not from last week → genuinely fresh, leave it
       try{
         await getJSON("/api/mark-carried",{method:"POST",headers:{"Content-Type":"application/json"},
           body:JSON.stringify({blockId:it.blockId})});
@@ -782,7 +788,7 @@ async function migrateCarried(){
       }catch(e){/* skip */}
     }
   }
-  try{localStorage.setItem("noocap_carry_migrated_v1","1");}catch(e){}
+  try{localStorage.setItem("noocap_carry_migrated_v3","1");}catch(e){}
   if(any&&state.view==="weekly")renderWeekly();
 }
 function closeOverlays(){document.getElementById("scrim").classList.remove("show");
