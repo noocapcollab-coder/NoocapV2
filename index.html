@@ -541,6 +541,15 @@ function renderWeekly(){
   const comp=t.planned?Math.round(t.shipped/t.planned*100):0;
   const aiP=t.aiPlanned?Math.round(t.aiShipped/t.aiPlanned*100):0;
   const neP=t.normalPlanned?Math.round(t.normalShipped/t.normalPlanned*100):0;
+  // Carried-forward = a video in this week that last week's plan already held
+  // (same creator + title), or one still tagged from an earlier rollover. Purely
+  // informational — it doesn't change the target or any other count.
+  const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
+  const prevTitles=new Map();
+  if(prevW) for(const c of prevW.creators) prevTitles.set(norm(c.name),new Set(c.items.map(it=>norm(it.title))));
+  const carriedFwd=(cName,it)=>{const s=prevTitles.get(norm(cName));return !!((s&&s.has(norm(it.title)))||isCarried(it));};
+  let carriedCount=0;
+  for(const c of w.creators) for(const it of c.items) if(carriedFwd(c.name,it)) carriedCount++;
   const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
   const kpi=(label,big,sub,pct)=>`<div class="kpi"><div class="h"><span class="k" style="background:${pct==null?"var(--faint)":hc(pct)}"></span>${label}</div>
     <div class="v">${big}</div><div class="s">${sub}</div>${pct==null?"":`<div class="bar"><i style="width:${pct}%;background:${hc(pct)}"></i></div>`}</div>`;
@@ -551,6 +560,7 @@ function renderWeekly(){
       ${kpi("Normal edits",`${t.normalShipped} <small>/ ${t.normalPlanned}</small>`,"Joshua &amp; Nuel",neP)}
       ${kpi("Weekly completion",`${comp}<small>%</small>`,`${t.shipped} of ${t.planned} planned`,comp)}
       ${kpi("Personal · Sponsor",`${t.personalShipped} · ${t.sponsorShipped}`,"shipped this week",null)}
+      ${kpi("Carried forward",`${carriedCount}`,prevW?`from ${esc(prevW.label)}`:"from last week",null)}
     </div>
     <div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
