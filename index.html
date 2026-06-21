@@ -268,6 +268,24 @@ const ccol=(n)=> CC[pretty(n)]||"#888780";
 const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
+// Live pipeline status used to drive the weekly plan.
+// "Done" for a week = the matching video reached Ready, To-Post, or Posted.
+const STAGE_RANK={Idea:1,Scripting:2,Filming:3,Editing:4,Review:5,Ready:6,Posted:7};
+const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"in review",Ready:"ready",Posted:"posted"};
+const DONE_RANK=6; // Ready and above counts as shipped
+function liveLookup(){
+  const m=new Map();
+  for(const v of state.pipeline){
+    if(!v.creator||!v.title)continue;
+    const k=norm(v.creator)+"|"+norm(v.title);
+    const r=STAGE_RANK[v.status]||0;
+    const cur=m.get(k);
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted"});
+  }
+  return m;
+}
+const liveOf=(lk,creator,title)=>lk.get(norm(creator)+"|"+norm(title))||null;
+
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
@@ -278,6 +296,7 @@ async function loadAll(fresh){
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
+  if(!state.offline) carryOver();
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
@@ -501,7 +520,20 @@ const hc=(p)=> p>=66?"var(--ok)":p>=33?"var(--warn)":"var(--danger)";
 function renderWeekly(){
   const root=document.getElementById("weekly");
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
-  const w=state.weeks[state.wkIdx]||state.weeks[0];const t=w.totals;
+  const w=state.weeks[state.wkIdx]||state.weeks[0];
+  const lk=liveLookup();
+  // done = manually ticked OR the matching video is Ready / To-Post / Posted
+  const isDone=(cName,it)=>{const lv=liveOf(lk,cName,it.title);return it.checked||(lv&&lv.rank>=DONE_RANK);};
+  // recompute weekly totals live, so the band reflects real pipeline status
+  const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalShipped:0,sponsorShipped:0};
+  for(const c of w.creators){
+    const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
+    for(const it of c.items){
+      t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
+      if(isDone(c.name,it)){ t.shipped++; if(normal)t.normalShipped++;else t.aiShipped++;
+        if((it.type||"")==="Sponsor")t.sponsorShipped++; else if(!normal)t.personalShipped++; }
+    }
+  }
   const comp=t.planned?Math.round(t.shipped/t.planned*100):0;
   const aiP=t.aiPlanned?Math.round(t.aiShipped/t.aiPlanned*100):0;
   const neP=t.normalPlanned?Math.round(t.normalShipped/t.normalPlanned*100):0;
@@ -520,15 +552,22 @@ function renderWeekly(){
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
+    const cShipped=c.items.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
     html+=`<div class="col"><div class="accent" style="background:${ccol(c.name)}"></div>
       <div class="colhead plain"><span class="cdot" style="background:${ccol(c.name)}"></span>
-      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${c.shipped}/${c.planned}</span></div><div class="cbody">`;
+      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${c.items.length}</span></div><div class="cbody">`;
     for(const it of c.items){
       const tag=TT[it.type||(isNormal?"Edit":"Personal")]||TT.Personal;
-      html+=`<div class="card ${it.checked?"done":""}" style="--ac:${tag[1]};cursor:default">
+      const lv=liveOf(lk,c.name,it.title);
+      const done=isDone(c.name,it);
+      let stat;
+      if(done) stat= (lv&&lv.status==="Posted")||it.checked ? "✓ posted" : "✓ ready";
+      else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
+      else stat= it.note?esc(it.note):"planned";
+      html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         <div class="t">${esc(it.title)}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
-        <span class="days">${it.checked?"✓ posted":(it.note?esc(it.note):"planned")}</span></div></div>`;
+        <span class="days">${stat}</span></div></div>`;
     }
     if(!c.items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
     html+=`<button class="add" data-creator="${esc(c.name)}">+ add video</button></div></div>`;
@@ -626,6 +665,53 @@ async function submitPicks(creator,isNormal){
   }
   closeOverlays(); if(added)toast(added+" added to "+w.label);
   renderWeekly(); setTimeout(loadAll,1200);
+}
+
+// Automatic carry-over: when a new week is current, bring forward last week's
+// videos that are still in production (matched in the pipeline and not yet
+// Ready/To-Post/Posted). Idempotent — dedupes by title against the current
+// week, and a localStorage flag keeps it to once per flip per browser.
+let carriedOver=false;
+async function carryOver(){
+  if(carriedOver||state.offline)return;
+  if(!state.pipeline.length||state.weeks.length<2)return; // wait for real data
+  const curIdx=state.weeks.findIndex(w=>w.current);
+  if(curIdx<=0){carriedOver=true;return;}              // no prior week to pull from
+  const cur=state.weeks[curIdx], prev=state.weeks[curIdx-1];
+  carriedOver=true;
+  let flag="";
+  try{flag="noocap_carry::"+prev.label+"=>"+cur.label;
+    if(localStorage.getItem(flag))return;}catch(e){flag="";}
+  const lk=liveLookup();
+  const have=new Map();
+  for(const c of cur.creators) have.set(norm(c.name),new Set(c.items.map(it=>norm(it.title))));
+  const jobs=[];
+  for(const pc of prev.creators){
+    for(const it of pc.items){
+      const lv=liveOf(lk,pc.name,it.title);
+      if(!lv||lv.rank>=DONE_RANK)continue;             // no match, or already done → skip
+      const seen=have.get(norm(pc.name));
+      if(seen&&seen.has(norm(it.title)))continue;       // already in this week
+      const cc=cur.creators.find(c=>norm(c.name)===norm(pc.name));
+      if(!cc||!cc.blockId)continue;                     // can't write (preview / no section)
+      jobs.push({cc,title:it.title,type:it.type||"Personal",note:it.note||""});
+      seen&&seen.add(norm(it.title));
+    }
+  }
+  if(!jobs.length){try{flag&&localStorage.setItem(flag,"1");}catch(e){}return;}
+  let n=0;
+  for(const j of jobs){
+    const sec=j.type==="Sponsor"?"SPONSOR":"PERSONAL";
+    const after=j.cc.anchors[sec]||j.cc.anchors.NONE||j.cc.anchors.PERSONAL||j.cc.anchors.SPONSOR||null;
+    try{
+      const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({parentBlockId:j.cc.blockId,afterBlockId:after,title:j.title,note:j.note,checked:false})});
+      j.cc.items.push({title:j.title,note:j.note,checked:false,type:j.type,blockId:res.blockId});
+      j.cc.anchors[sec]=res.blockId||after; n++;
+    }catch(e){/* skip individual failures, try the rest */}
+  }
+  try{flag&&localStorage.setItem(flag,"1");}catch(e){}
+  if(n){toast(n+" unfinished rolled into "+cur.label); if(state.view==="weekly")renderWeekly();}
 }
 
 function showScrim(){document.getElementById("scrim").classList.add("show");}
