@@ -51,6 +51,18 @@ const blockText = (b) => {
   return d && d.rich_text ? d.rich_text.map((t) => t.plain_text).join("") : "";
 };
 
+// If a checkbox's title is a link to a Notion page (added by the picker), pull the
+// linked page id out so the dashboard can match the card to the live video by id.
+const blockLinkId = (b) => {
+  const d = b[b.type];
+  if (!d || !d.rich_text) return null;
+  for (const t of d.rich_text) {
+    const href = t.href || (t.text && t.text.link && t.text.link.url) || null;
+    if (href) { const ms = href.match(/[0-9a-f]{32}/ig); if (ms && ms.length) return ms[ms.length - 1].toLowerCase(); }
+  }
+  return null;
+};
+
 function weekLabel(text) {
   // "JUNE 15 - JUNE 20", "JUN 1 - 6", "JUNE 29 - JULY 4"
   const m = text.match(/\b([A-Z]{3,9})\s+(\d{1,2})\s*[-–]\s*(?:([A-Z]{3,9})\s+)?(\d{1,2})\b/i);
@@ -133,7 +145,7 @@ async function walk(blockId, ctx, archived, token) {
           const checked = !!(b.to_do && b.to_do.checked);
           const sec = ctx.section;
           const type = sec === "PERSONAL" ? "Personal" : sec === "SPONSOR" ? "Sponsor" : null;
-          ctx.creator.items.push({ title, note, checked, type, blockId: b.id });
+          ctx.creator.items.push({ title, note, checked, type, blockId: b.id, videoId: blockLinkId(b) });
           ctx.creator.anchors[sec] = b.id; // append-after anchor = last item in this section
           ctx.creator.planned++; if (checked) ctx.creator.shipped++;
 
