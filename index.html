@@ -137,6 +137,9 @@
   .card.dragging{opacity:.45}
   .card .mv{margin-left:6px;font-size:10.5px;color:var(--faint);cursor:pointer;border:0.5px solid var(--line);border-radius:6px;padding:1px 6px;background:var(--surface)}
   .card .mv:hover{color:var(--accent);border-color:var(--accent)}
+  #weekly .card .t{padding-right:15px}
+  #weekly .card .del{position:absolute;top:4px;right:5px;border:none;background:transparent;color:var(--faint);font-size:15px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:7px;opacity:.4;transition:.12s}
+  #weekly .card .del:hover{opacity:1;color:var(--accent2);background:var(--surface2)}
   .mvmenu{position:fixed;z-index:60;background:var(--bg);border:0.5px solid color-mix(in srgb,var(--accent) 35%,var(--line2));border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4),0 0 22px color-mix(in srgb,var(--accent) 14%,transparent);padding:6px;min-width:150px;animation:menuin .14s ease}
   @keyframes menuin{from{opacity:0;transform:translateY(-4px) scale(.97)}to{opacity:1;transform:none}}
   .mvmenu .mi{padding:8px 11px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px}
@@ -266,6 +269,7 @@ const REFRESH_MS=20000;
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
+const idn=(x)=> (x||"").replace(/-/g,"").toLowerCase();
 const ccol=(n)=> CC[pretty(n)]||"#888780";
 const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -287,10 +291,30 @@ function liveLookup(){
   return m;
 }
 const liveOf=(lk,creator,title)=>lk.get(norm(creator)+"|"+norm(title))||null;
+// Match a weekly card to the live pipeline by the video's Notion id (set when the
+// card was added from the picker). This is what lets a rename in Notion flow through:
+// the id never changes, so we always read the video's current title and stage.
+function liveById(){
+  const m=new Map();
+  for(const v of state.pipeline){
+    if(!v.id)continue;
+    const k=idn(v.id);const r=STAGE_RANK[v.status]||0;const cur=m.get(k);
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",title:v.title});
+  }
+  return m;
+}
+// id match first (live title + stage), falling back to title match for older cards
+// and hand-typed titles that have no linked video.
+function resolveItem(lk,byId,cName,it){
+  let lv=null,title=it.title;
+  if(it.videoId){const r=byId.get(idn(it.videoId));if(r){lv=r;if(r.title)title=r.title;}}
+  if(!lv)lv=liveOf(lk,cName,it.title);
+  return {title,lv};
+}
 const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
 const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
 
-let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null};
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set()};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
 async function loadAll(fresh){
@@ -525,14 +549,15 @@ function renderWeekly(){
   const root=document.getElementById("weekly");
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
-  const lk=liveLookup();
+  const lk=liveLookup();const byId=liveById();
+  const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
   // done = manually ticked OR the matching video is Ready / To-Post / Posted
-  const isDone=(cName,it)=>{const lv=liveOf(lk,cName,it.title);return it.checked||(lv&&lv.rank>=DONE_RANK);};
+  const isDone=(cName,it)=>{const {lv}=resolveItem(lk,byId,cName,it);return it.checked||(lv&&lv.rank>=DONE_RANK);};
   // weekly totals — every planned video counts toward the week
   const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalShipped:0,sponsorShipped:0};
   for(const c of w.creators){
     const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
-    for(const it of c.items){
+    for(const it of live(c)){
       t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
       if(isDone(c.name,it)){ t.shipped++; if(normal)t.normalShipped++;else t.aiShipped++;
         if((it.type||"")==="Sponsor")t.sponsorShipped++; else if(!normal)t.personalShipped++; }
@@ -546,7 +571,7 @@ function renderWeekly(){
   // this week and changes no other number.
   const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
   let carriedCount=0;
-  if(prevW) for(const c of prevW.creators) for(const it of c.items) if(!isDone(c.name,it)) carriedCount++;
+  if(prevW) for(const c of prevW.creators) for(const it of live(c)) if(!isDone(c.name,it)) carriedCount++;
   const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
   const kpi=(label,big,sub,pct)=>`<div class="kpi"><div class="h"><span class="k" style="background:${pct==null?"var(--faint)":hc(pct)}"></span>${label}</div>
     <div class="v">${big}</div><div class="s">${sub}</div>${pct==null?"":`<div class="bar"><i style="width:${pct}%;background:${hc(pct)}"></i></div>`}</div>`;
@@ -563,30 +588,33 @@ function renderWeekly(){
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
-    const cShipped=c.items.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
+    const items=live(c);
+    const cShipped=items.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
     html+=`<div class="col"><div class="accent" style="background:${ccol(c.name)}"></div>
       <div class="colhead plain"><span class="cdot" style="background:${ccol(c.name)}"></span>
-      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${c.items.length}</span></div><div class="cbody">`;
-    for(const it of c.items){
+      <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${items.length}</span></div><div class="cbody">`;
+    for(const it of items){
       const tag=TT[it.type||(isNormal?"Edit":"Personal")]||TT.Personal;
-      const lv=liveOf(lk,c.name,it.title);
+      const {title:dtitle,lv}=resolveItem(lk,byId,c.name,it);
       const done=isDone(c.name,it);
       let stat;
       if(done) stat= (lv&&lv.status==="Posted")||it.checked ? "✓ posted" : "✓ ready";
       else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
       else { const cn=cleanNote(it.note); stat= cn||"planned"; }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
-        <div class="t">${esc(it.title)}</div>
+        ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
+        <div class="t">${esc(dtitle)}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
         <span class="days">${stat}</span></div></div>`;
     }
-    if(!c.items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
+    if(!items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
     html+=`<button class="add" data-creator="${esc(c.name)}">+ add video</button></div></div>`;
   }
   html+=`</div>`;
   root.innerHTML=html;
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
+  root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
 }
 
 function openDrawer(name){
@@ -618,7 +646,7 @@ function openPicker(creatorName){
   const w=state.weeks[state.wkIdx];
   const creator=[...w.creators].find(c=>c.name===creatorName);
   if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
-  const scheduled=new Set(creator.items.map(it=>norm(it.title)));
+  const scheduled=new Set(creator.items.filter(it=>!state.removed.has(it.blockId)).map(it=>norm(it.title)));
   const PICK_STAGES=new Set(["Idea","Scripting","Filming","Editing","Review"]);
   const named=v=>v.title&&v.title.trim()&&v.title.trim().toLowerCase()!=="untitled";
   const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&PICK_STAGES.has(v.status)&&named(v)).sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
@@ -626,7 +654,7 @@ function openPicker(creatorName){
   const m=document.getElementById("modal");
   let rows=cands.map((v,i)=>{
     const dis=scheduled.has(norm(v.title));const defType=v.type||"Personal";
-    return `<div class="row ${dis?"dis":""}" data-i="${i}" data-title="${esc(v.title)}" data-type="${esc(defType)}">
+    return `<div class="row ${dis?"dis":""}" data-i="${i}" data-title="${esc(v.title)}" data-type="${esc(defType)}" data-id="${esc(v.id||"")}" data-url="${esc(v.url||"")}">
       <div class="cb"></div><div style="flex:1"><div class="rt">${esc(v.title)}</div>
         <div class="rs">${dis?"already in this week":esc(v.status||"")}</div>
         <div class="ctrls hide"><span class="ps" data-ps>
@@ -656,9 +684,9 @@ function openPicker(creatorName){
 
 async function submitPicks(creator,isNormal){
   const m=document.getElementById("modal");const picks=[];
-  m.querySelectorAll(".row.sel").forEach(r=>picks.push({title:r.dataset.title,type:r.dataset.type||"Personal",note:(r.querySelector(".note")?.value||"").trim()}));
+  m.querySelectorAll(".row.sel").forEach(r=>picks.push({title:r.dataset.title,type:r.dataset.type||"Personal",note:(r.querySelector(".note")?.value||"").trim(),videoId:r.dataset.id||"",videoUrl:r.dataset.url||""}));
   const manual=(m.querySelector("#manual")?.value||"").trim();
-  if(manual)picks.push({title:manual,type:"Personal",note:""});
+  if(manual)picks.push({title:manual,type:"Personal",note:"",videoId:"",videoUrl:""});
   if(!picks.length){toast("Nothing selected");return;}
   const btn=m.querySelector("#addbtn");btn.disabled=true;btn.textContent="Adding…";
   const w=state.weeks[state.wkIdx];let added=0;
@@ -667,8 +695,8 @@ async function submitPicks(creator,isNormal){
     const after=creator.anchors[sec]||creator.anchors.NONE||creator.anchors.PERSONAL||creator.anchors.SPONSOR||null;
     try{
       const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false})});
-      creator.items.push({title:p.title,note:p.note,checked:false,type:isNormal?(p.type||"Personal"):p.type,blockId:res.blockId});
+        body:JSON.stringify({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false,videoId:p.videoId||"",videoUrl:p.videoUrl||""})});
+      creator.items.push({title:p.title,note:p.note,checked:false,type:isNormal?(p.type||"Personal"):p.type,blockId:res.blockId,videoId:p.videoId||null});
       creator.anchors[sec]=res.blockId||after;creator.planned++;w.totals.planned++;
       if(isNormal)w.totals.normalPlanned++;else w.totals.aiPlanned++;
       added++;
@@ -676,6 +704,20 @@ async function submitPicks(creator,isNormal){
   }
   closeOverlays(); if(added)toast(added+" added to "+w.label);
   renderWeekly(); setTimeout(loadAll,1200);
+}
+
+// Remove one planned video from the week. Archives its checkbox in Notion, then
+// tombstones the block id locally so it stays gone even while the kpis cache (up
+// to ~20s) still returns it.
+async function removeCard(blockId,title){
+  if(!blockId)return;
+  if(!confirm(`Remove “${title||"this video"}” from the week?`))return;
+  try{
+    await getJSON("/api/remove-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({blockId})});
+    state.removed.add(blockId);
+    toast("Removed");
+    renderWeekly();
+  }catch(e){toast("Couldn't remove: "+e.message);}
 }
 
 // Automatic weekly carry-over.
