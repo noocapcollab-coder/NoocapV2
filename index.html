@@ -256,7 +256,7 @@
 <script>
 const SP={
  "Idea":["#F1EFE8","#5f5e5a"],"Scripting":["#EEEDFE","#534ab7"],"Filming":["#FCEBEB","#a32d2d"],
- "Editing":["#FBEAF0","#993556"],"Review":["#FAEEDA","#854f0b"],"Ready":["#EAF3DE","#3b6d11"],
+ "Editing":["#FBEAF0","#993556"],"Review":["#FAEEDA","#854f0b"],"Approved":["#E3EFFC","#2456a6"],"Ready":["#EAF3DE","#3b6d11"],
  "Posted":["#E1F5EE","#0f6e56"],"Archived":["#F1EFE8","#5f5e5a"]
 };
 const ATTN=new Set(["Review"]);
@@ -275,10 +275,11 @@ const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 // Live pipeline status used to drive the weekly plan.
-// "Done" for a week = the matching video reached Ready, To-Post, or Posted.
-const STAGE_RANK={Idea:1,Scripting:2,Filming:3,Editing:4,Review:5,Ready:6,Posted:7};
-const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"in review",Ready:"ready",Posted:"posted"};
-const DONE_RANK=6; // Ready and above counts as shipped
+// "Done" for a week = the matching video reached Approval (sent to brand), To-Post,
+// Ready, or Posted. "8- Changes" stays in-progress since that's brand rework.
+const STAGE_RANK={Idea:1,Scripting:2,Filming:3,Editing:4,Review:5,Approved:6,Ready:7,Posted:8};
+const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"in review",Approved:"with brand",Ready:"ready",Posted:"posted"};
+const DONE_RANK=6; // Approval (sent to brand) and above counts as shipped
 function liveLookup(){
   const m=new Map();
   for(const v of state.pipeline){
@@ -598,7 +599,11 @@ function renderWeekly(){
       const {title:dtitle,lv}=resolveItem(lk,byId,c.name,it);
       const done=isDone(c.name,it);
       let stat;
-      if(done) stat= (lv&&lv.status==="Posted")||it.checked ? "✓ posted" : "✓ ready";
+      if(done){
+        if((lv&&lv.status==="Posted")||it.checked) stat="✓ posted";
+        else if(lv&&lv.status==="Approved") stat="✓ sent";
+        else stat="✓ ready";
+      }
       else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
       else { const cn=cleanNote(it.note); stat= cn||"planned"; }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
@@ -647,7 +652,7 @@ function openPicker(creatorName){
   const creator=[...w.creators].find(c=>c.name===creatorName);
   if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
   const scheduled=new Set(creator.items.filter(it=>!state.removed.has(it.blockId)).map(it=>norm(it.title)));
-  const PICK_STAGES=new Set(["Idea","Scripting","Filming","Editing","Review"]);
+  const PICK_STAGES=new Set(["Idea","Scripting","Filming","Editing","Review","Approved"]);
   const named=v=>v.title&&v.title.trim()&&v.title.trim().toLowerCase()!=="untitled";
   const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&PICK_STAGES.has(v.status)&&named(v)).sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
   const isNormal=["JOSHUA","NUEL","NEUL"].includes(creatorName);
