@@ -7,7 +7,11 @@
 // It writes nothing else: no status changes, no edits to existing rows. Everything
 // else in the dashboard is read-only.
 //
-// Body (POST JSON): { parentBlockId, afterBlockId?, title, note?, checked? }
+// Body (POST JSON): { parentBlockId, afterBlockId?, title, note?, checked?, videoUrl?, videoId? }
+// When videoUrl is present (the pick came from a real pipeline video), the title is
+// written as a link to that video's Notion page. The dashboard reads that link back
+// to match the card to the live video by id, so renaming the video later updates the
+// card on its own instead of going stale.
 // Optional guard: set DASHBOARD_TOKEN in env and send it as the x-dashboard-token
 // header to stop anyone but your dashboard from posting.
 
@@ -55,15 +59,27 @@ export default async function handler(req, res) {
   }
 
   const content = note ? `${rawTitle} (${note})` : rawTitle;
+  const videoUrl = (body.videoUrl || "").trim() || null;
 
   // Optional: create a section heading (PERSONAL / SPONSOR) instead of a checkbox.
   // Used by the weekly carry-over to build the section in an empty upcoming week
   // so Personal/Sponsor grouping survives a reload.
   const heading = body.heading ? (String(body.heading).toUpperCase() === "SPONSOR" ? "SPONSOR" : "PERSONAL") : null;
 
+  // When the pick came from a pipeline video, link the title to that video's page.
+  // The note (if any) is kept as a separate, unlinked run so the plain text still
+  // reads "Title (note)" exactly as before.
+  let todoRichText;
+  if (videoUrl) {
+    todoRichText = [{ type: "text", text: { content: rawTitle.slice(0, 2000), link: { url: videoUrl } } }];
+    if (note) todoRichText.push({ type: "text", text: { content: ` (${note})`.slice(0, 200) } });
+  } else {
+    todoRichText = [{ type: "text", text: { content: content.slice(0, 2000) } }];
+  }
+
   const childBlock = heading
     ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: heading } }] } }
-    : { object: "block", type: "to_do", to_do: { rich_text: [{ type: "text", text: { content: content.slice(0, 2000) } }], checked } };
+    : { object: "block", type: "to_do", to_do: { rich_text: todoRichText, checked } };
 
   const payload = {
     children: [childBlock],
