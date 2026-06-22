@@ -1,21 +1,28 @@
-// api/set-status.js — writes ONE video's Status back to Notion when an editor drags
-// a card between columns on the dashboard. This is the only endpoint that CHANGES
-// your Notion data, so it does exactly one thing: patch the Status of a single page
-// to one of the four allowed stages, nothing else.
+// api/set-status.js — writes ONE video's Status back to Notion. Used both by the
+// Pipeline drag-and-drop (Film/Edit/Changes/Ready) and by the Weekly status chip,
+// which can set any stage in the flow. It patches the Status of a single page to
+// one known option label and does nothing else.
 //
-// POST body: { pageId, stage }  where stage ∈ Film | Edit | Changes | Ready
+// POST body: { pageId, stage }
+// stage ∈ Idea | Scripting | Filming (Film) | Editing (Edit) | Changes | Approved | Ready | Posted
 // It detects whether that board's Status is a select- or status-type property and
-// writes accordingly, and it refuses any stage outside the allowed four.
+// writes accordingly, and it refuses any stage it doesn't recognise.
 
 const NOTION_API = "https://api.notion.com/v1";
 const VERSION = process.env.NOTION_DS_VERSION || "2025-09-03";
 
-// dashboard stage -> exact Notion option label (verified to exist on every board)
+// dashboard stage -> exact Notion option label (the standard numbered flow on every board)
 const STAGE_TO_LABEL = {
+  Idea: "1- Idea Assigned",
+  Scripting: "4- Script Draft",
+  Filming: "6- To Film",
   Film: "6- To Film",
+  Editing: "7- In Edit",
   Edit: "7- In Edit",
   Changes: "8- Changes",
+  Approved: "9- Approval Brand/Creator",
   Ready: "11- Ready",
+  Posted: "12- Posted",
 };
 
 async function notion(path, token, { method = "GET", body } = {}) {
@@ -47,7 +54,7 @@ export default async function handler(req, res) {
   const { pageId, stage } = body || {};
   const label = STAGE_TO_LABEL[stage];
   if (!pageId || !label) {
-    res.status(400).json({ ok: false, error: "Need pageId and a stage of Film, Edit, Changes, or Ready." });
+    res.status(400).json({ ok: false, error: "Need pageId and a known stage." });
     return;
   }
 
