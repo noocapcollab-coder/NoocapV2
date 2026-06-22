@@ -297,7 +297,7 @@ function liveLookup(){
     const k=norm(v.creator)+"|"+norm(v.title);
     const r=STAGE_RANK[v.status]||0;
     const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted"});
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id});
   }
   return m;
 }
@@ -317,10 +317,10 @@ function liveById(){
 // id match first (live title + stage), falling back to title match for older cards
 // and hand-typed titles that have no linked video.
 function resolveItem(lk,byId,cName,it){
-  let lv=null,title=it.title;
+  let lv=null,title=it.title,vid=it.videoId||null;
   if(it.videoId){const r=byId.get(idn(it.videoId));if(r){lv=r;if(r.title)title=r.title;}}
-  if(!lv)lv=liveOf(lk,cName,it.title);
-  return {title,lv};
+  if(!lv){lv=liveOf(lk,cName,it.title);if(lv&&lv.id&&!vid)vid=lv.id;}
+  return {title,lv,vid};
 }
 const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
 const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
@@ -606,7 +606,7 @@ function renderWeekly(){
       <span class="nm">${esc(pretty(c.name))}</span><span class="ct">${cShipped}/${items.length}</span></div><div class="cbody">`;
     for(const it of items){
       const tag=TT[it.type||(isNormal?"Edit":"Personal")]||TT.Personal;
-      const {title:dtitle,lv}=resolveItem(lk,byId,c.name,it);
+      const {title:dtitle,lv,vid}=resolveItem(lk,byId,c.name,it);
       const done=isDone(c.name,it);
       let stat;
       if(done){
@@ -616,15 +616,15 @@ function renderWeekly(){
       }
       else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
       else { const cn=cleanNote(it.note); stat= cn||"planned"; }
-      const linked=!!it.videoId;
+      const linked=!!vid;
       const statusEl=linked
-        ? `<button class="schip ${done?"sc-done":""}" data-block="${esc(it.blockId)}" data-video="${esc(it.videoId)}">${esc(stat)} ▾</button>`
+        ? `<button class="schip ${done?"sc-done":""}" data-block="${esc(it.blockId)}" data-video="${esc(vid)}">${esc(stat)} ▾</button>`
         : `<span class="days">${esc(stat)}</span>`;
       let menu="";
       if(linked&&state.openStatus===it.blockId){
         const cur=lv?lv.status:null;
         menu=`<div class="smenu"><div class="smh">set status → writes to Notion</div>`+
-          STATUS_MENU.map(([key,label,st])=>`<div class="smi ${cur===st?"cur":""}" data-video="${esc(it.videoId)}" data-stage="${key}" data-block="${esc(it.blockId)}"><span>${esc(label)}</span>${cur===st?"<span>✓</span>":""}</div>`).join("")+
+          STATUS_MENU.map(([key,label,st])=>`<div class="smi ${cur===st?"cur":""}" data-video="${esc(vid)}" data-stage="${key}" data-block="${esc(it.blockId)}"><span>${esc(label)}</span>${cur===st?"<span>✓</span>":""}</div>`).join("")+
           `</div>`;
       }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
