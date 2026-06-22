@@ -565,11 +565,12 @@ function renderWeekly(){
   // done = manually ticked OR the matching video is Ready / To-Post / Posted
   const isDone=(cName,it)=>{const {lv}=resolveItem(lk,byId,cName,it);return it.checked||(lv&&lv.rank>=DONE_RANK);};
   // weekly totals — every planned video counts toward the week
-  const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalShipped:0,sponsorShipped:0};
+  const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalPlanned:0,sponsorPlanned:0,personalShipped:0,sponsorShipped:0};
   for(const c of w.creators){
     const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
     for(const it of live(c)){
       t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
+      if(!normal){ if((it.type||"")==="Sponsor")t.sponsorPlanned++; else t.personalPlanned++; }
       if(isDone(c.name,it)){ t.shipped++; if(normal)t.normalShipped++;else t.aiShipped++;
         if((it.type||"")==="Sponsor")t.sponsorShipped++; else if(!normal)t.personalShipped++; }
     }
@@ -592,7 +593,7 @@ function renderWeekly(){
       ${kpi("AI videos shipped",`${t.aiShipped} <small>/ ${t.aiPlanned}</small>`,`${aiP}% of planned`,aiP)}
       ${kpi("Normal edits",`${t.normalShipped} <small>/ ${t.normalPlanned}</small>`,"Joshua &amp; Nuel",neP)}
       ${kpi("Weekly completion",`${comp}<small>%</small>`,`${t.shipped} of ${t.planned} planned`,comp)}
-      ${kpi("Personal · Sponsor",`${t.personalShipped} · ${t.sponsorShipped}`,"shipped this week",null)}
+      ${kpi("Personal · Sponsor",`${t.personalPlanned} · ${t.sponsorPlanned}`,`${t.personalShipped} · ${t.sponsorShipped} shipped`,null)}
       ${kpi("Carried forward",`${carriedCount}`,prevW?`pending from ${esc(prevW.label)}`:"pending from last week",null)}
     </div>
     <div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
