@@ -140,6 +140,14 @@
   #weekly .card .t{padding-right:15px}
   #weekly .card .del{position:absolute;top:4px;right:5px;border:none;background:transparent;color:var(--faint);font-size:15px;line-height:1;cursor:pointer;padding:2px 5px;border-radius:7px;opacity:.4;transition:.12s}
   #weekly .card .del:hover{opacity:1;color:var(--accent2);background:var(--surface2)}
+  #weekly .card .schip{display:inline-flex;align-items:center;gap:4px;background:rgba(56,189,248,.10);border:.5px solid rgba(56,189,248,.45);color:var(--accent);font-size:11.5px;padding:2px 7px;border-radius:7px;cursor:pointer;white-space:nowrap}
+  #weekly .card .schip.sc-done{background:rgba(52,211,153,.12);border-color:rgba(52,211,153,.45);color:var(--ok)}
+  #weekly .card .schip:hover{filter:brightness(1.18)}
+  #weekly .card .smenu{margin-top:8px;margin-left:auto;width:162px;background:#0e1828;border:.5px solid #26374f;border-radius:9px;padding:5px}
+  #weekly .card .smh{color:#6a7f9d;font-size:11px;padding:3px 8px 5px}
+  #weekly .card .smi{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#c3d2e6;padding:5px 8px;border-radius:6px;cursor:pointer}
+  #weekly .card .smi:hover{background:rgba(56,189,248,.14);color:var(--accent)}
+  #weekly .card .smi.cur{color:var(--accent)}
   .mvmenu{position:fixed;z-index:60;background:var(--bg);border:0.5px solid color-mix(in srgb,var(--accent) 35%,var(--line2));border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4),0 0 22px color-mix(in srgb,var(--accent) 14%,transparent);padding:6px;min-width:150px;animation:menuin .14s ease}
   @keyframes menuin{from{opacity:0;transform:translateY(-4px) scale(.97)}to{opacity:1;transform:none}}
   .mvmenu .mi{padding:8px 11px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px}
@@ -278,8 +286,10 @@ const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 // "Done" for a week = the matching video reached Approval (sent to brand), To-Post,
 // Ready, or Posted. "8- Changes" stays in-progress since that's brand rework.
 const STAGE_RANK={Idea:1,Scripting:2,Filming:3,Editing:4,Review:5,Approved:6,Ready:7,Posted:8};
-const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"in review",Approved:"with brand",Ready:"ready",Posted:"posted"};
+const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"changes",Approved:"with brand",Ready:"ready",Posted:"posted"};
 const DONE_RANK=6; // Approval (sent to brand) and above counts as shipped
+// Weekly status chip options: [stage sent to set-status, label shown, live status it represents]
+const STATUS_MENU=[["Idea","idea","Idea"],["Scripting","scripting","Scripting"],["Filming","to film","Filming"],["Editing","in edit","Editing"],["Changes","changes","Review"],["Approved","with brand","Approved"],["Ready","ready","Ready"],["Posted","posted","Posted"]];
 function liveLookup(){
   const m=new Map();
   for(const v of state.pipeline){
@@ -315,7 +325,7 @@ function resolveItem(lk,byId,cName,it){
 const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
 const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
 
-let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set()};
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
 async function loadAll(fresh){
@@ -606,11 +616,22 @@ function renderWeekly(){
       }
       else if(lv) stat= STAGE_LABEL[lv.status]||"in progress";
       else { const cn=cleanNote(it.note); stat= cn||"planned"; }
+      const linked=!!it.videoId;
+      const statusEl=linked
+        ? `<button class="schip ${done?"sc-done":""}" data-block="${esc(it.blockId)}" data-video="${esc(it.videoId)}">${esc(stat)} ▾</button>`
+        : `<span class="days">${esc(stat)}</span>`;
+      let menu="";
+      if(linked&&state.openStatus===it.blockId){
+        const cur=lv?lv.status:null;
+        menu=`<div class="smenu"><div class="smh">set status → writes to Notion</div>`+
+          STATUS_MENU.map(([key,label,st])=>`<div class="smi ${cur===st?"cur":""}" data-video="${esc(it.videoId)}" data-stage="${key}" data-block="${esc(it.blockId)}"><span>${esc(label)}</span>${cur===st?"<span>✓</span>":""}</div>`).join("")+
+          `</div>`;
+      }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
         <div class="t">${esc(dtitle)}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
-        <span class="days">${stat}</span></div></div>`;
+        ${statusEl}</div>${menu}</div>`;
     }
     if(!items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
     html+=`<button class="add" data-creator="${esc(c.name)}">+ add video</button></div></div>`;
@@ -620,6 +641,21 @@ function renderWeekly(){
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
+  root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;renderWeekly();});
+  root.querySelectorAll(".smi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyStatus(b.dataset.video,b.dataset.stage,b.dataset.block);});
+  if(!window.__statusCloser){window.__statusCloser=true;document.addEventListener("click",(e)=>{if(state.openStatus&&!e.target.closest(".schip")&&!e.target.closest(".smenu")){state.openStatus=null;if(state.view==="weekly")renderWeekly();}});}
+}
+
+// Set a video's status from the weekly chip — writes straight to Notion, then re-pulls
+// so the card mirrors the new stage (and flips to done at Approval / Ready / Posted).
+async function setWeeklyStatus(videoId,stage,blockId){
+  state.openStatus=null;
+  if(!videoId){toast("This card isn't linked to a video yet.");renderWeekly();return;}
+  try{
+    await getJSON("/api/set-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId:videoId,stage})});
+    toast("Status updated");
+    loadAll(true);
+  }catch(e){toast("Couldn't update: "+e.message);renderWeekly();}
 }
 
 function openDrawer(name){
