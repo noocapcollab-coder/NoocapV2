@@ -773,6 +773,7 @@ function renderCalendar(){
       const pv=vid?pmap.get(idn(vid)):null;
       const postDay=pv&&pv.dueDate?String(pv.dueDate).slice(0,10):null;
       const done=it.checked||(lv&&lv.rank>=DONE_RANK);
+      if(done) continue; // hide finished videos (ready / sent / posted) — calendar is for work still to do
       let stat,cls;
       if(done){stat=((lv&&lv.status==="Posted")||it.checked)?"posted":(lv&&lv.status==="Approved"?"sent":"ready");cls="ok";}
       else if(lv){stat=STAGE_LABEL[lv.status]||"in progress";cls="go";}
@@ -786,7 +787,7 @@ function renderCalendar(){
   const cardHtml=(c)=>`<div class="calcard" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
     <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
     <div class="cf"><span class="who">${esc(pretty(c.creator))}</span><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
-  let html=`<div class="calbar"><span class="h">Calendar</span><span class="s">post dates from Notion · drag to re-plan, saved on this device</span>
+  let html=`<div class="calbar"><span class="h">Calendar</span><span class="s">videos still in progress · finished ones hidden · drag to set a day, saved on this device</span>
     <select id="calsel">${opts}</select></div><div class="calgrid">`;
   for(const d of days){
     html+=`<div class="calday ${d.iso===todayIso?"today":""}" data-day="${d.iso}">
