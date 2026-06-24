@@ -163,12 +163,11 @@
   .caltray.dragover{background:var(--accent-soft);border-color:var(--accent)}
   .caltray .th{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:9px}
   .caltray .th .cnt{font-family:var(--mono);font-size:11px;color:var(--faint)}
-  .caltray .trow{display:flex;flex-wrap:wrap;gap:7px}
-  .caltray .tgrp{margin-bottom:12px}
-  .caltray .tgrp:last-child{margin-bottom:0}
-  .caltray .tgh{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 7px;display:flex;align-items:center;gap:7px}
-  .caltray .tgh .cnt{font-family:var(--mono);font-size:10.5px;color:var(--faint);font-weight:500}
-  .caltray .calcard{flex:0 0 auto;max-width:230px}
+  .caltray .tcols{display:flex;gap:10px;overflow-x:auto;padding:2px 0 4px;align-items:flex-start}
+  .caltray .tcol{flex:0 0 196px;background:var(--surface);border:0.5px solid var(--line);border-radius:13px;overflow:hidden;box-shadow:var(--shadow)}
+  .caltray .tch{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:9px 11px 8px;border-bottom:0.5px solid var(--line);display:flex;align-items:center;gap:7px}
+  .caltray .tch .cnt{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--faint);font-weight:500}
+  .caltray .tcbody{padding:8px;display:flex;flex-direction:column;gap:7px}
   .caltray .empty{color:var(--faint);font-size:12px;padding:2px}
   .card.dragging{opacity:.45}
   .card .mv{margin-left:6px;font-size:10.5px;color:var(--faint);cursor:pointer;border:0.5px solid var(--line);border-radius:6px;padding:1px 6px;background:var(--surface)}
@@ -739,14 +738,16 @@ function renderCalendar(){
       <div class="dh"><span class="wd">${d.wd}</span><span class="dn">${d.dn}</span><span class="cnt">${buckets[d.iso].length||""}</span></div>
       <div class="calbody">${buckets[d.iso].map(cardHtml).join("")}</div></div>`;
   }
-  // group the undated tray by production stage so 50+ cards stay scannable
+  // group the undated tray by production stage, laid out as side-by-side columns
   const TRAY_ORDER=["Idea","Scripting","Filming","Editing","Review","Approved","Ready","Posted","Planned"];
   const TRAY_LABEL={Idea:"Idea",Scripting:"Scripting",Filming:"To film",Editing:"In edit",Review:"Changes",Approved:"With brand",Ready:"Ready",Posted:"Posted",Planned:"Planned"};
   const groups={};for(const cd of tray){(groups[cd.stage]||(groups[cd.stage]=[])).push(cd);}
   let trayInner="";
   if(tray.length){
+    trayInner=`<div class="tcols">`;
     for(const key of TRAY_ORDER){const g=groups[key];if(!g||!g.length)continue;
-      trayInner+=`<div class="tgrp"><div class="tgh">${esc(TRAY_LABEL[key]||key)} <span class="cnt">${g.length}</span></div><div class="trow">${g.map(cardHtml).join("")}</div></div>`;}
+      trayInner+=`<div class="tcol"><div class="tch">${esc(TRAY_LABEL[key]||key)} <span class="cnt">${g.length}</span></div><div class="tcbody">${g.map(cardHtml).join("")}</div></div>`;}
+    trayInner+=`</div>`;
   } else trayInner=`<span class="empty">Everything's scheduled.</span>`;
   html+=`</div><div class="caltray" data-day="unscheduled"><div class="th">No post date yet · drag onto a day <span class="cnt">${tray.length}</span></div>${trayInner}</div>`;
   root.innerHTML=html;
