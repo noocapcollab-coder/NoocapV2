@@ -134,6 +134,38 @@
   .stbody{min-height:30px}
   .stbody.thin{min-height:30px;border:1.2px dashed transparent;border-radius:10px}
   .card[draggable=true]{cursor:grab}
+  /* Calendar tab */
+  .calbar{display:flex;align-items:center;gap:10px;margin:2px 2px 12px}
+  .calbar .h{font-weight:600;font-size:15px}
+  .calbar .s{color:var(--muted);font-size:12.5px}
+  .calbar select{margin-left:auto;background:var(--surface);color:var(--text);border:0.5px solid var(--line2);border-radius:9px;padding:6px 10px;font-size:13px;font-family:inherit}
+  .calgrid{display:grid;grid-template-columns:repeat(6,minmax(150px,1fr));gap:10px;overflow-x:auto;padding:2px 2px 14px;align-items:start}
+  .calday{background:var(--soft);border:0.5px solid var(--line);border-radius:14px;min-height:132px;display:flex;flex-direction:column;transition:.12s}
+  .calday.dragover{background:var(--accent-soft);border-color:var(--accent);box-shadow:inset 0 0 0 1.5px var(--accent)}
+  .calday.today{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+  .calday .dh{display:flex;align-items:baseline;gap:6px;padding:9px 11px 7px;border-bottom:0.5px solid var(--line)}
+  .calday .dh .wd{font-weight:600;font-size:12.5px;letter-spacing:.02em;text-transform:uppercase;color:var(--muted)}
+  .calday .dh .dn{font-family:var(--mono);font-size:13px;color:var(--text)}
+  .calday .dh .cnt{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .calday.today .dh .wd{color:var(--accent)}
+  .calbody{padding:8px;display:flex;flex-direction:column;gap:7px;flex:1}
+  .calcard{position:relative;background:var(--surface);border:0.5px solid var(--line);border-left:3px solid var(--ac,var(--accent));border-radius:10px;padding:7px 9px 7px 10px;cursor:grab;box-shadow:var(--shadow);transition:.12s}
+  .calcard:hover{border-color:var(--line2);transform:translateY(-1px)}
+  .calcard.dragging{opacity:.4}
+  .calcard .ct{display:flex;align-items:flex-start;gap:6px}
+  .calcard .grip{color:var(--faint);font-size:12px;line-height:1.3;flex:none;margin-top:1px;letter-spacing:-1px}
+  .calcard .tt{font-size:12.5px;font-weight:500;line-height:1.3;letter-spacing:-.01em;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .calcard .cf{display:flex;align-items:center;gap:6px;margin-top:5px}
+  .calcard .who{font-size:10.5px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  .calcard .st{margin-left:auto;font-size:10.5px;font-weight:600}
+  .calcard .st.ok{color:var(--ok)} .calcard .st.go{color:var(--accent)}
+  .caltray{margin-top:6px;background:var(--soft);border:0.5px dashed var(--line2);border-radius:14px;padding:10px 12px;transition:.12s}
+  .caltray.dragover{background:var(--accent-soft);border-color:var(--accent)}
+  .caltray .th{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:9px}
+  .caltray .th .cnt{font-family:var(--mono);font-size:11px;color:var(--faint)}
+  .caltray .trow{display:flex;flex-wrap:wrap;gap:7px}
+  .caltray .calcard{flex:0 0 auto;max-width:230px}
+  .caltray .empty{color:var(--faint);font-size:12px;padding:2px}
   .card.dragging{opacity:.45}
   .card .mv{margin-left:6px;font-size:10.5px;color:var(--faint);cursor:pointer;border:0.5px solid var(--line);border-radius:6px;padding:1px 6px;background:var(--surface)}
   .card .mv:hover{color:var(--accent);border-color:var(--accent)}
@@ -243,6 +275,7 @@
       <button data-v="pipeline" class="on">Pipeline</button>
       <button data-v="focus">Focus</button>
       <button data-v="weekly">Weekly</button>
+      <button data-v="calendar">Calendar</button>
     </div>
     <div class="sync">
       <span class="dot" id="dot"></span><span id="synctxt">connecting…</span>
@@ -254,6 +287,7 @@
   <section id="pipeline"></section>
   <section id="focus" style="display:none"></section>
   <section id="weekly" style="display:none"></section>
+  <section id="calendar" style="display:none"></section>
 </div>
 
 <div class="scrim" id="scrim"></div>
@@ -352,7 +386,8 @@ function render(animate){
   document.getElementById("pipeline").style.display=state.view==="pipeline"?"":"none";
   document.getElementById("focus").style.display=state.view==="focus"?"":"none";
   document.getElementById("weekly").style.display=state.view==="weekly"?"":"none";
-  if(state.view==="pipeline") renderPipeline(); else if(state.view==="focus") renderFocus(); else renderWeekly();
+  document.getElementById("calendar").style.display=state.view==="calendar"?"":"none";
+  if(state.view==="pipeline") renderPipeline(); else if(state.view==="focus") renderFocus(); else if(state.view==="calendar") renderCalendar(); else renderWeekly();
   if(animate){const el=document.getElementById(state.view);if(el){el.classList.remove("viewenter");void el.offsetWidth;el.classList.add("viewenter");}}
 }
 
@@ -645,6 +680,79 @@ function renderWeekly(){
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;renderWeekly();});
   root.querySelectorAll(".smi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyStatus(b.dataset.video,b.dataset.stage,b.dataset.block);});
   if(!window.__statusCloser){window.__statusCloser=true;document.addEventListener("click",(e)=>{if(state.openStatus&&!e.target.closest(".schip")&&!e.target.closest(".smenu")){state.openStatus=null;if(state.view==="weekly")renderWeekly();}});}
+}
+
+// ---- Calendar tab -------------------------------------------------------
+// A Mon–Sat board for the selected week. Each planned video sits on its Notion
+// post date; you can drag it to any day and the move is saved on this device
+// (localStorage) so it survives a reload and the 20s sync. Notion stays read-only.
+const CAL_KEY="noocap_cal_overrides";
+function calOverrides(){try{return JSON.parse(localStorage.getItem(CAL_KEY)||"{}")||{};}catch(e){return {};}}
+function setCalOverride(blockId,val){const o=calOverrides();if(val==null)delete o[blockId];else o[blockId]=val;try{localStorage.setItem(CAL_KEY,JSON.stringify(o));}catch(e){}}
+function isoDay(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),da=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${da}`;}
+function renderCalendar(){
+  const root=document.getElementById("calendar");
+  if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The calendar fills in as soon as it reconnects.":"No weekly plan found yet."}</div>`;return;}
+  const w=state.weeks[state.wkIdx]||state.weeks[0];
+  const lk=liveLookup(),byId=liveById();
+  const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
+  const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
+  const days=[];for(let i=0;i<6;i++){const d=new Date(w.sortKey+i*DAY_MS);days.push({iso:isoDay(d),wd:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()],dn:d.getDate()});}
+  const dayIso=new Set(days.map(d=>d.iso));
+  const todayIso=isoDay(new Date());
+  const ov=calOverrides();
+  const buckets={};days.forEach(d=>buckets[d.iso]=[]);const tray=[];
+  const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
+  for(const c of creators){
+    for(const it of live(c)){
+      const {title,lv,vid}=resolveItem(lk,byId,c.name,it);
+      const pv=vid?pmap.get(idn(vid)):null;
+      const postDay=pv&&pv.dueDate?String(pv.dueDate).slice(0,10):null;
+      const done=it.checked||(lv&&lv.rank>=DONE_RANK);
+      let stat,cls;
+      if(done){stat=((lv&&lv.status==="Posted")||it.checked)?"posted":(lv&&lv.status==="Approved"?"sent":"ready");cls="ok";}
+      else if(lv){stat=STAGE_LABEL[lv.status]||"in progress";cls="go";}
+      else {stat="planned";cls="";}
+      const card={blockId:it.blockId,title,creator:c.name,color:ccol(c.name),done:!!done,stat,cls,postDay};
+      const o=ov[it.blockId];
+      let place;
+      if(o==="unscheduled")place="tray";
+      else if(o&&dayIso.has(o))place=o;
+      else if(o)place="tray";
+      else if(postDay&&dayIso.has(postDay))place=postDay;
+      else place="tray";
+      (place==="tray"?tray:buckets[place]).push(card);
+    }
+  }
+  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
+  const cardHtml=(c)=>`<div class="calcard" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
+    <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
+    <div class="cf"><span class="who">${esc(pretty(c.creator))}</span><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
+  let html=`<div class="calbar"><span class="h">Calendar</span><span class="s">post dates from Notion · drag to re-plan, saved on this device</span>
+    <select id="calsel">${opts}</select></div><div class="calgrid">`;
+  for(const d of days){
+    html+=`<div class="calday ${d.iso===todayIso?"today":""}" data-day="${d.iso}">
+      <div class="dh"><span class="wd">${d.wd}</span><span class="dn">${d.dn}</span><span class="cnt">${buckets[d.iso].length||""}</span></div>
+      <div class="calbody">${buckets[d.iso].map(cardHtml).join("")}</div></div>`;
+  }
+  html+=`</div><div class="caltray" data-day="unscheduled"><div class="th">No post date yet · drag onto a day <span class="cnt">${tray.length}</span></div>
+    <div class="trow">${tray.length?tray.map(cardHtml).join(""):`<span class="empty">Everything's scheduled.</span>`}</div></div>`;
+  root.innerHTML=html;
+  document.getElementById("calsel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderCalendar();};
+  root.querySelectorAll(".calcard").forEach(el=>{
+    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",el.dataset.block);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+  });
+  root.querySelectorAll("[data-day]").forEach(zone=>{
+    zone.addEventListener("dragover",e=>{e.preventDefault();zone.classList.add("dragover");});
+    zone.addEventListener("dragleave",e=>{if(!zone.contains(e.relatedTarget))zone.classList.remove("dragover");});
+    zone.addEventListener("drop",e=>{
+      e.preventDefault();zone.classList.remove("dragover");
+      const block=e.dataTransfer.getData("text/plain");if(!block)return;
+      setCalOverride(block,zone.dataset.day);
+      renderCalendar();
+    });
+  });
 }
 
 // Set a video's status from the weekly chip — writes straight to Notion, then re-pulls
