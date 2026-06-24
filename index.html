@@ -183,6 +183,16 @@
   #weekly .card .smi{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#c3d2e6;padding:5px 8px;border-radius:6px;cursor:pointer}
   #weekly .card .smi:hover{background:rgba(56,189,248,.14);color:var(--accent)}
   #weekly .card .smi.cur{color:var(--accent)}
+  #weekly .card .meta2{margin-top:7px}
+  #weekly .card .dchip{display:inline-flex;align-items:center;gap:4px;background:var(--surface2);border:.5px solid var(--line2);color:var(--muted);font-size:11px;padding:2px 8px;border-radius:7px;cursor:pointer;white-space:nowrap}
+  #weekly .card .dchip.on{background:rgba(167,139,250,.12);border-color:rgba(167,139,250,.5);color:var(--accent2)}
+  #weekly .card .dchip:hover{filter:brightness(1.15)}
+  #weekly .card .dmenu{margin-top:8px;width:150px;background:#0e1828;border:.5px solid #26374f;border-radius:9px;padding:5px}
+  #weekly .card .dmi{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:#c3d2e6;padding:5px 8px;border-radius:6px;cursor:pointer}
+  #weekly .card .dmi:hover{background:rgba(167,139,250,.16);color:var(--accent2)}
+  #weekly .card .dmi.cur{color:var(--accent2)}
+  #weekly .dayunset{margin-top:9px;border:.5px dashed var(--line2);border-radius:12px;padding:11px 12px;color:var(--faint);font-size:12px;text-align:center;transition:.12s}
+  #weekly .dayunset.dragover{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
   .mvmenu{position:fixed;z-index:60;background:var(--bg);border:0.5px solid color-mix(in srgb,var(--accent) 35%,var(--line2));border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.4),0 0 22px color-mix(in srgb,var(--accent) 14%,transparent);padding:6px;min-width:150px;animation:menuin .14s ease}
   @keyframes menuin{from{opacity:0;transform:translateY(-4px) scale(.97)}to{opacity:1;transform:none}}
   .mvmenu .mi{padding:8px 11px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px}
@@ -362,7 +372,7 @@ function resolveItem(lk,byId,cName,it){
 const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
 const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
 
-let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null};
+let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null,openDay:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
 async function loadAll(fresh){
@@ -600,6 +610,11 @@ function renderWeekly(){
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup();const byId=liveById();
   const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
+  // per-day scheduling (shared with the Calendar tab via the same local store)
+  const days=calDays(w);const dayIso=new Set(days.map(d=>d.iso));const todayIso=isoDay(new Date());
+  const ov=calOverrides();const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
+  const placed={};days.forEach(d=>placed[d.iso]=[]);
+  const dayName=(iso)=>{const d=days.find(x=>x.iso===iso);return d?`${d.wd} ${d.dn}`:"";};
   // done = manually ticked OR the matching video is Ready / To-Post / Posted
   const isDone=(cName,it)=>{const {lv}=resolveItem(lk,byId,cName,it);return it.checked||(lv&&lv.rank>=DONE_RANK);};
   // weekly totals — every planned video counts toward the week
@@ -666,24 +681,67 @@ function renderWeekly(){
           STATUS_MENU.map(([key,label,st])=>`<div class="smi ${cur===st?"cur":""}" data-video="${esc(vid)}" data-stage="${key}" data-block="${esc(it.blockId)}"><span>${esc(label)}</span>${cur===st?"<span>✓</span>":""}</div>`).join("")+
           `</div>`;
       }
+      // day picker — assigns the video to a day this week (saved on this device)
+      const pv=vid?pmap.get(idn(vid)):null;
+      const postDay=pv&&pv.dueDate?String(pv.dueDate).slice(0,10):null;
+      const effDay=it.blockId?calEffDay(ov,it.blockId,postDay,dayIso):null;
+      let dchip="",daymenu="";
+      if(it.blockId){
+        dchip=`<button class="dchip ${effDay?"on":""}" data-block="${esc(it.blockId)}">${effDay?esc(dayName(effDay)):"set day"} ▾</button>`;
+        if(state.openDay===it.blockId){
+          daymenu=`<div class="dmenu"><div class="smh">set day · saved on this device</div>`+
+            days.map(d=>`<div class="dmi ${effDay===d.iso?"cur":""}" data-block="${esc(it.blockId)}" data-day="${d.iso}"><span>${d.wd} ${d.dn}</span>${effDay===d.iso?"<span>✓</span>":""}</div>`).join("")+
+            `<div class="dmi ${!effDay?"cur":""}" data-block="${esc(it.blockId)}" data-day="unscheduled"><span>No day</span>${!effDay?"<span>✓</span>":""}</div></div>`;
+        }
+        if(effDay) placed[effDay].push({blockId:it.blockId,title:dtitle,color:ccol(c.name),done,stat:(done?stat.replace(/^✓\s*/,""):stat),cls:(done?"ok":(lv?"go":""))});
+      }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
         <div class="t">${esc(dtitle)}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
-        ${statusEl}</div>${menu}</div>`;
+        ${statusEl}</div>${menu}
+        <div class="meta2">${dchip}</div>${daymenu}</div>`;
     }
     if(!items.length) html+=`<div class="empty">Nothing planned yet.</div>`;
     html+=`<button class="add" data-creator="${esc(c.name)}">+ add video</button></div></div>`;
   }
   html+=`</div>`;
+  // schedule grid (Mon–Sat) — the same day assignments, drag to rearrange
+  const gcard=(c)=>`<div class="calcard" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
+    <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
+    <div class="cf"><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
+  const totalPlaced=days.reduce((n,d)=>n+placed[d.iso].length,0);
+  html+=`<div class="toprow" style="margin-top:20px"><span class="s">Schedule · pick a day on a card above, or drag cards between days <span style="color:var(--faint)">· ${totalPlaced} placed</span></span></div><div class="calgrid">`;
+  for(const d of days){
+    html+=`<div class="calday ${d.iso===todayIso?"today":""}" data-day="${d.iso}">
+      <div class="dh"><span class="wd">${d.wd}</span><span class="dn">${d.dn}</span><span class="cnt">${placed[d.iso].length||""}</span></div>
+      <div class="calbody">${placed[d.iso].map(gcard).join("")}</div></div>`;
+  }
+  html+=`</div><div class="dayunset" data-day="unscheduled">Drag a card here to clear its day</div>`;
   root.innerHTML=html;
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
-  root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;renderWeekly();});
+  root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
   root.querySelectorAll(".smi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyStatus(b.dataset.video,b.dataset.stage,b.dataset.block);});
-  if(!window.__statusCloser){window.__statusCloser=true;document.addEventListener("click",(e)=>{if(state.openStatus&&!e.target.closest(".schip")&&!e.target.closest(".smenu")){state.openStatus=null;if(state.view==="weekly")renderWeekly();}});}
+  root.querySelectorAll(".dchip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openDay=state.openDay===b.dataset.block?null:b.dataset.block;state.openStatus=null;renderWeekly();});
+  root.querySelectorAll(".dmi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyDay(b.dataset.block,b.dataset.day);});
+  root.querySelectorAll(".calcard").forEach(el=>{
+    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",el.dataset.block);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+    el.addEventListener("dragend",()=>el.classList.remove("dragging"));
+  });
+  root.querySelectorAll(".calday,.dayunset").forEach(zone=>{
+    zone.addEventListener("dragover",e=>{e.preventDefault();zone.classList.add("dragover");});
+    zone.addEventListener("dragleave",e=>{if(!zone.contains(e.relatedTarget))zone.classList.remove("dragover");});
+    zone.addEventListener("drop",e=>{e.preventDefault();zone.classList.remove("dragover");const block=e.dataTransfer.getData("text/plain");if(!block)return;setCalOverride(block,zone.dataset.day);renderWeekly();});
+  });
+  if(!window.__menuCloser){window.__menuCloser=true;document.addEventListener("click",(e)=>{let ch=false;
+    if(state.openStatus&&!e.target.closest(".schip")&&!e.target.closest(".smenu")){state.openStatus=null;ch=true;}
+    if(state.openDay&&!e.target.closest(".dchip")&&!e.target.closest(".dmenu")){state.openDay=null;ch=true;}
+    if(ch&&state.view==="weekly")renderWeekly();});}
 }
+// Assign (or clear) a weekly card's day — saved on this device, mirrored on the Calendar tab
+function setWeeklyDay(blockId,day){ state.openDay=null; setCalOverride(blockId,day); renderWeekly(); }
 
 // ---- Calendar tab -------------------------------------------------------
 // A Mon–Sat board for the selected week. Each planned video sits on its Notion
@@ -693,6 +751,9 @@ const CAL_KEY="noocap_cal_overrides";
 function calOverrides(){try{return JSON.parse(localStorage.getItem(CAL_KEY)||"{}")||{};}catch(e){return {};}}
 function setCalOverride(blockId,val){const o=calOverrides();if(val==null)delete o[blockId];else o[blockId]=val;try{localStorage.setItem(CAL_KEY,JSON.stringify(o));}catch(e){}}
 function isoDay(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),da=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${da}`;}
+// the six Mon–Sat days of a week, and a card's effective day (override → post date → none)
+function calDays(w){const a=[];for(let i=0;i<6;i++){const d=new Date(w.sortKey+i*DAY_MS);a.push({iso:isoDay(d),wd:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()],dn:d.getDate()});}return a;}
+function calEffDay(ov,blockId,postDay,dayIsoSet){const o=ov[blockId];if(o==="unscheduled")return null;if(o&&dayIsoSet.has(o))return o;if(o)return null;if(postDay&&dayIsoSet.has(postDay))return postDay;return null;}
 function renderCalendar(){
   const root=document.getElementById("calendar");
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The calendar fills in as soon as it reconnects.":"No weekly plan found yet."}</div>`;return;}
@@ -700,7 +761,7 @@ function renderCalendar(){
   const lk=liveLookup(),byId=liveById();
   const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
   const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
-  const days=[];for(let i=0;i<6;i++){const d=new Date(w.sortKey+i*DAY_MS);days.push({iso:isoDay(d),wd:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()],dn:d.getDate()});}
+  const days=calDays(w);
   const dayIso=new Set(days.map(d=>d.iso));
   const todayIso=isoDay(new Date());
   const ov=calOverrides();
@@ -717,14 +778,8 @@ function renderCalendar(){
       else if(lv){stat=STAGE_LABEL[lv.status]||"in progress";cls="go";}
       else {stat="planned";cls="";}
       const card={blockId:it.blockId,title,creator:c.name,color:ccol(c.name),done:!!done,stat,cls,postDay,stage:lv?lv.status:(it.checked?"Posted":"Planned")};
-      const o=ov[it.blockId];
-      let place;
-      if(o==="unscheduled")place="tray";
-      else if(o&&dayIso.has(o))place=o;
-      else if(o)place="tray";
-      else if(postDay&&dayIso.has(postDay))place=postDay;
-      else place="tray";
-      (place==="tray"?tray:buckets[place]).push(card);
+      const eff=calEffDay(ov,it.blockId,postDay,dayIso);
+      (eff?buckets[eff]:tray).push(card);
     }
   }
   const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
