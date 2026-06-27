@@ -70,6 +70,13 @@
   .card .meta{display:flex;align-items:center;gap:7px}
   .card.carry{opacity:.74}
   .card.carry::before{opacity:.5;box-shadow:none}
+  .carrybar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 2px 14px;padding:11px 15px;border-radius:13px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent2) 14%,transparent),color-mix(in srgb,var(--accent) 9%,transparent));border:.5px solid color-mix(in srgb,var(--accent2) 38%,var(--line))}
+  .carrybar .ct{font-size:13px;color:var(--text);display:flex;align-items:center;gap:9px}
+  .carrybar .ct b{font-family:var(--mono);color:var(--accent2)}
+  .carrybar .cdotp{width:8px;height:8px;border-radius:50%;background:var(--accent2);box-shadow:0 0 10px var(--accent2);flex:none}
+  .carrybar .carrygo{margin-left:auto;appearance:none;border:.5px solid color-mix(in srgb,var(--accent2) 55%,transparent);background:color-mix(in srgb,var(--accent2) 18%,transparent);color:var(--text);font:inherit;font-size:12.5px;font-weight:600;padding:7px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
+  .carrybar .carrygo:hover{background:color-mix(in srgb,var(--accent2) 30%,transparent)}
+  .carrybar .carrygo:disabled{opacity:.6;cursor:default}
   .pill{font-size:10px;padding:2.5px 8px;border-radius:8px;white-space:nowrap;font-weight:600;letter-spacing:.01em}
   .days{margin-left:auto;font-size:10.5px;color:var(--faint);white-space:nowrap;font-weight:500;font-family:var(--mono)}
   .days.warn{color:var(--warn)}
@@ -639,7 +646,8 @@ function renderWeekly(){
   const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
   let carriedCount=0;
   if(prevW) for(const c of prevW.creators) for(const it of live(c)) if(!isDone(c.name,it)) carriedCount++;
-  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
+  const __nowIdx=currentWeekIdx();
+  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${i===__nowIdx?" · now":""}</option>`).join("");
   const kpi=(label,big,sub,pct)=>`<div class="kpi"><div class="h"><span class="k" style="background:${pct==null?"var(--faint)":hc(pct)}"></span>${label}</div>
     <div class="v">${big}</div><div class="s">${sub}</div>${pct==null?"":`<div class="bar"><i style="width:${pct}%;background:${hc(pct)}"></i></div>`}</div>`;
   let html=`<div class="wkbar"><span class="toprow" style="margin:0"><span class="h">Weekly</span></span>
@@ -650,8 +658,16 @@ function renderWeekly(){
       ${kpi("Weekly completion",`${comp}<small>%</small>`,`${t.shipped} of ${t.planned} planned`,comp)}
       ${kpi("Personal · Sponsor",`${t.personalPlanned} · ${t.sponsorPlanned}`,`${t.personalShipped} · ${t.sponsorShipped} shipped`,null)}
       ${kpi("Carried forward",`${carriedCount}`,prevW?`pending from ${esc(prevW.label)}`:"pending from last week",null)}
-    </div>
-    <div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
+    </div>`;
+  // Sunday roll-up bar — appears only in the window before the next week starts,
+  // when there are still-pending videos that aren't in next week yet.
+  const cp=buildCarryPlan();
+  const carriedAt=(()=>{try{return +localStorage.getItem("noocap_carried_at")||0;}catch(e){return 0;}})();
+  if(cp.rolloverActive&&cp.count>0&&cp.next&&(Date.now()-carriedAt>90000)){
+    html+=`<div class="carrybar"><div class="ct"><span class="cdotp"></span><b>${cp.count}</b> pending video${cp.count===1?"":"s"} from this week ${cp.cur?`(${esc(cp.cur.w.label)})`:""} aren't in ${esc(cp.next.w.label)} yet</div>
+      <button id="carrybtn" class="carrygo">Roll them into ${esc(cp.next.w.label)} →</button></div>`;
+  }
+  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
@@ -722,6 +738,7 @@ function renderWeekly(){
   html+=`</div><div class="dayunset" data-day="unscheduled">Drag a card here to clear its day</div>`;
   root.innerHTML=html;
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
+  { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=runCarryover; }
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
@@ -784,7 +801,8 @@ function renderCalendar(){
       (eff?buckets[eff]:tray).push(card);
     }
   }
-  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${x.current?" · now":""}</option>`).join("");
+  const __nowIdx=currentWeekIdx();
+  const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${i===__nowIdx?" · now":""}</option>`).join("");
   const cardHtml=(c)=>`<div class="calcard ${c.done?"done":""}" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
     <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
     <div class="cf"><span class="who">${esc(pretty(c.creator))}</span><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
@@ -957,11 +975,93 @@ function weekByDate(){
   const rolloverActive=!!(cur&&next&&today>=next.w.sortKey-DAY_MS); // Sunday before next week → on
   return {cur,next,rolloverActive};
 }
-function defaultWeekIdx(){
-  const {cur,next}=weekByDate();
-  if(cur)return cur.i;                      // always open on the week in progress
-  if(next)return next.i;
-  return 0;
+function defaultWeekIdx(){ return currentWeekIdx(); }
+// The week in progress, decided purely by today's date (not by where the week sits
+// on the Notion page). Among weeks already started, the latest one wins; if two share
+// a start date (a stale duplicate), the fuller one (more planned) wins.
+function currentWeekIdx(){
+  const today=Date.now();
+  let best=-1,bestKey=-Infinity,bestPlanned=-1;
+  state.weeks.forEach((w,i)=>{
+    if(w.sortKey>today) return;
+    const planned=(w.totals&&w.totals.planned)||0;
+    if(w.sortKey>bestKey||(w.sortKey===bestKey&&planned>bestPlanned)){best=i;bestKey=w.sortKey;bestPlanned=planned;}
+  });
+  if(best>=0) return best;
+  let up=-1,upKey=Infinity; state.weeks.forEach((w,i)=>{if(w.sortKey<upKey){upKey=w.sortKey;up=i;}});
+  return up>=0?up:0;
+}
+// Current week + the soonest week after it, plus whether the Sunday roll-up window is open.
+function weekRefs(){
+  const ci=currentWeekIdx();
+  const cur=state.weeks[ci]?{w:state.weeks[ci],i:ci}:null;
+  let next=null;
+  if(cur){let bestKey=Infinity,bi=-1;
+    state.weeks.forEach((w,i)=>{if(w.sortKey>cur.w.sortKey&&w.sortKey<bestKey){bestKey=w.sortKey;bi=i;}});
+    if(bi>=0) next={w:state.weeks[bi],i:bi};}
+  const rolloverActive=!!(cur&&next&&Date.now()>=next.w.sortKey-DAY_MS);
+  return {cur,next,rolloverActive};
+}
+// Work out which still-in-production videos from the current week aren't yet in the
+// upcoming week. Skips finished ones (Ready/sent/posted), blanks, placeholders, and
+// anything already present in next week (dedupe by title), so it never double-adds.
+function buildCarryPlan(){
+  const {cur,next,rolloverActive}=weekRefs();
+  if(!cur||!next) return {cur,next,rolloverActive,count:0,plan:[]};
+  const lk=liveLookup(),byId=liveById();
+  const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
+  const nextByName=new Map(next.w.creators.map(c=>[norm(c.name),c]));
+  let plan=[],count=0;
+  for(const c of cur.w.creators){
+    const nc=nextByName.get(norm(c.name)); if(!nc) continue;
+    const existing=new Set((nc.items||[]).map(it=>norm((it.title||"").replace(/⤴/g,"").trim())));
+    const groups={Personal:[],Sponsor:[]};
+    for(const it of c.items){
+      if(state.removed.has(it.blockId))continue;
+      const {title:dt,lv,vid}=resolveItem(lk,byId,c.name,it);
+      const done=it.checked||(lv&&lv.rank>=DONE_RANK); if(done)continue;
+      const title=(dt||it.title||"").replace(/⤴/g,"").trim();
+      if(!title||/^\d+$/.test(title))continue;
+      if(existing.has(norm(title)))continue;
+      const pv=vid?pmap.get(idn(vid)):null;
+      (it.type==="Sponsor"?groups.Sponsor:groups.Personal).push({title,note:cleanNote(it.note),videoUrl:pv?pv.url:null,videoId:vid||null});
+      count++;
+    }
+    if(groups.Personal.length||groups.Sponsor.length) plan.push({creator:c.name,blockId:nc.blockId,anchors:nc.anchors,groups});
+  }
+  return {cur,next,rolloverActive,count,plan};
+}
+const csleep=(ms)=>new Promise(r=>setTimeout(r,ms));
+async function addBlock(body){try{return await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});}catch(e){return null;}}
+// Copy this week's pending videos into next week, tagged with ⤴ so they read as carried.
+// One tap rather than silent, because it writes to the team's live plan; dedupe keeps re-taps safe.
+async function runCarryover(){
+  if(window.__carrying)return; 
+  const {next,count,plan}=buildCarryPlan();
+  if(!next){toast("No next week to roll into yet");return;}
+  if(!count){toast("Next week's already up to date");return;}
+  if(count>80){toast("That's a lot to roll — open the week and check first");return;}
+  window.__carrying=true;
+  const btn=document.getElementById("carrybtn"); if(btn){btn.disabled=true;btn.textContent="Rolling…";}
+  let added=0;
+  try{
+    for(const p of plan){
+      for(const type of ["Personal","Sponsor"]){
+        const items=p.groups[type]; if(!items.length)continue;
+        let after=type==="Sponsor"?p.anchors.SPONSOR:p.anchors.PERSONAL;
+        if(!after){ const h=await addBlock({parentBlockId:p.blockId,heading:type}); if(h&&h.blockId)after=h.blockId; await csleep(220); }
+        for(const it of items){
+          const r=await addBlock({parentBlockId:p.blockId,afterBlockId:after||undefined,title:it.title,note:(it.note?it.note+" ⤴":"⤴"),videoUrl:it.videoUrl,videoId:it.videoId,checked:false});
+          if(r&&r.blockId){after=r.blockId;added++;}
+          await csleep(220);
+        }
+      }
+    }
+    toast(`Rolled ${added} video${added===1?"":"s"} into ${next.w.label}`);
+    try{localStorage.setItem("noocap_carried_at",String(Date.now()));}catch(e){}
+    loadAll(true);
+  }catch(e){ toast("Roll-up hit a snag — some may not have copied"); }
+  finally{ window.__carrying=false; }
 }
 function showScrim(){document.getElementById("scrim").classList.add("show");}
 
