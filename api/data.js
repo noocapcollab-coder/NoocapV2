@@ -22,6 +22,7 @@ export default async function handler(req, res) {
         .map((r) => ({
           id: r.id, url: r.url, title: r.title, creator: r.creator,
           status: r.status, rawStatus: r.rawStatus, type: r.type, editor: r.editor,
+          format: r.format,
           posted: r.posted,
           daysInStage: r.daysInStage, dueDate: r.dueDate, editedLink: r.editedLink,
           postedLink: r.postedLink, lastEdited: r.updated,
