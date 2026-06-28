@@ -659,13 +659,17 @@ function renderWeekly(){
       ${kpi("Personal · Sponsor",`${t.personalPlanned} · ${t.sponsorPlanned}`,`${t.personalShipped} · ${t.sponsorShipped} shipped`,null)}
       ${kpi("Carried forward",`${carriedCount}`,prevW?`pending from ${esc(prevW.label)}`:"pending from last week",null)}
     </div>`;
-  // Sunday roll-up bar — appears only in the window before the next week starts,
-  // when there are still-pending videos that aren't in next week yet.
+  // Sunday roll-up — stays visible through the window before next week starts, so it's
+  // never a mystery whether carry-over ran. Active button when there's pending work; a quiet
+  // "up to date" line when there isn't. Re-taps are safe because buildCarryPlan dedupes by title.
   const cp=buildCarryPlan();
-  const carriedAt=(()=>{try{return +localStorage.getItem("noocap_carried_at")||0;}catch(e){return 0;}})();
-  if(cp.rolloverActive&&cp.count>0&&cp.next&&(Date.now()-carriedAt>90000)){
-    html+=`<div class="carrybar"><div class="ct"><span class="cdotp"></span><b>${cp.count}</b> pending video${cp.count===1?"":"s"} from this week ${cp.cur?`(${esc(cp.cur.w.label)})`:""} aren't in ${esc(cp.next.w.label)} yet</div>
+  if(cp.rolloverActive&&cp.next){
+    if(cp.count>0){
+      html+=`<div class="carrybar"><div class="ct"><span class="cdotp"></span><b>${cp.count}</b> pending video${cp.count===1?"":"s"} from ${cp.cur?esc(cp.cur.w.label):"this week"} aren't in ${esc(cp.next.w.label)} yet</div>
       <button id="carrybtn" class="carrygo">Roll them into ${esc(cp.next.w.label)} →</button></div>`;
+    }else{
+      html+=`<div class="carrybar" style="opacity:.6"><div class="ct"><span class="cdotp"></span>${esc(cp.next.w.label)} is up to date with ${cp.cur?esc(cp.cur.w.label):"this week"}</div></div>`;
+    }
   }
   html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
   const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
