@@ -94,6 +94,7 @@ function splitNote(text) {
 function newWeek(label, sortKey, archived) {
   return {
     label, sortKey, archived, current: !archived,
+    blockId: null,
     creators: new Map(),
     totals: { planned: 0, shipped: 0, aiPlanned: 0, aiShipped: 0,
       normalPlanned: 0, normalShipped: 0, personalShipped: 0, sponsorShipped: 0 },
@@ -124,6 +125,7 @@ async function walk(blockId, ctx, archived, token) {
       if (wk) {
         if (!ctx.weeks.has(wk.label)) ctx.weeks.set(wk.label, newWeek(wk.label, wk.sortKey, archived));
         ctx.week = ctx.weeks.get(wk.label);
+        if (!ctx.week.blockId) ctx.week.blockId = b.id;
         ctx.creator = null; ctx.section = "NONE";
       } else if (ctx.week) {
         const cr = creatorName(text);
@@ -190,6 +192,7 @@ export default async function handler(req, res) {
       .sort((a, b) => b.sortKey - a.sortKey)
       .map((w) => ({
         label: w.label, sortKey: w.sortKey, archived: w.archived, current: w.current,
+        blockId: w.blockId,
         totals: w.totals,
         creators: [...w.creators.values()].map((c) => ({
           name: c.name, blockId: c.blockId, anchors: c.anchors,
