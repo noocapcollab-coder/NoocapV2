@@ -653,7 +653,7 @@ function renderWeekly(){
   for(const p of state.pipeline){
     if(p.format!=="Long Form")continue;
     lfTotal++;
-    if(p.posted||p.status==="Ready"||p.status==="Posted")lfShipped++;
+    if(p.posted||(STAGE_RANK[p.status]||0)>=DONE_RANK)lfShipped++;
   }
   const lfP=lfTotal?Math.round(lfShipped/lfTotal*100):0;
   const __nowIdx=currentWeekIdx();
@@ -908,7 +908,7 @@ function openPicker(creatorName){
     const dis=scheduled.has(norm(v.title));const defType=v.type||"Personal";
     return `<div class="row ${dis?"dis":""}" data-i="${i}" data-title="${esc(v.title)}" data-type="${esc(defType)}" data-id="${esc(v.id||"")}" data-url="${esc(v.url||"")}">
       <div class="cb"></div><div style="flex:1"><div class="rt">${esc(v.title)}</div>
-        <div class="rs">${dis?"already in this week":esc(v.status||"")}</div>
+        <div class="rs">${dis?"already in this week":esc(STAGE_LABEL[v.status]||v.status||"")}</div>
         <div class="ctrls hide"><span class="ps" data-ps>
           <button data-t="Personal" class="${defType==="Personal"?"on":""}">Personal</button>
           <button data-t="Sponsor" class="${defType==="Sponsor"?"on":""}">Sponsor</button></span>
