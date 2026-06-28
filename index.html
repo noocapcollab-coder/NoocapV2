@@ -319,7 +319,7 @@
 
 <script>
 const SP={
- "Idea":["#F1EFE8","#5f5e5a"],"Scripting":["#EEEDFE","#534ab7"],"Filming":["#FCEBEB","#a32d2d"],
+ "Idea":["#F1EFE8","#5f5e5a"],"Scripting":["#EEEDFE","#534ab7"],"ScriptApproval":["#EEEDFE","#534ab7"],"Filming":["#FCEBEB","#a32d2d"],
  "Editing":["#FBEAF0","#993556"],"Review":["#FAEEDA","#854f0b"],"Approved":["#E3EFFC","#2456a6"],"Ready":["#EAF3DE","#3b6d11"],
  "Posted":["#E1F5EE","#0f6e56"],"Archived":["#F1EFE8","#5f5e5a"]
 };
@@ -341,8 +341,8 @@ const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",
 // Live pipeline status used to drive the weekly plan.
 // "Done" for a week = the matching video reached Approval (sent to brand), To-Post,
 // Ready, or Posted. "8- Changes" stays in-progress since that's brand rework.
-const STAGE_RANK={Idea:1,Scripting:2,Filming:3,Editing:4,Review:5,Approved:6,Ready:7,Posted:8};
-const STAGE_LABEL={Idea:"idea",Scripting:"scripting",Filming:"to film",Editing:"in edit",Review:"changes",Approved:"with brand",Ready:"ready",Posted:"posted"};
+const STAGE_RANK={Idea:1,Scripting:2,ScriptApproval:2,Filming:3,Editing:4,Review:5,Approved:6,Ready:7,Posted:8};
+const STAGE_LABEL={Idea:"idea",Scripting:"scripting",ScriptApproval:"script with brand",Filming:"to film",Editing:"in edit",Review:"changes",Approved:"with brand",Ready:"ready",Posted:"posted"};
 const DONE_RANK=6; // Approval (sent to brand) and above counts as shipped
 // Weekly status chip options: [stage sent to set-status, label shown, live status it represents]
 const STATUS_MENU=[["Idea","idea","Idea"],["Scripting","scripting","Scripting"],["Filming","to film","Filming"],["Editing","in edit","Editing"],["Changes","changes","Review"],["Approved","with brand","Approved"],["Ready","ready","Ready"],["Posted","posted","Posted"]];
@@ -828,8 +828,8 @@ function renderCalendar(){
       <div class="calbody">${buckets[d.iso].map(cardHtml).join("")}</div></div>`;
   }
   // group the undated tray by production stage, laid out as side-by-side columns
-  const TRAY_ORDER=["Idea","Scripting","Filming","Editing","Review","Approved","Ready","Posted","Planned"];
-  const TRAY_LABEL={Idea:"Idea",Scripting:"Scripting",Filming:"To film",Editing:"In edit",Review:"Changes",Approved:"With brand",Ready:"Ready",Posted:"Posted",Planned:"Planned"};
+  const TRAY_ORDER=["Idea","Scripting","ScriptApproval","Filming","Editing","Review","Approved","Ready","Posted","Planned"];
+  const TRAY_LABEL={Idea:"Idea",Scripting:"Scripting",ScriptApproval:"Script with brand",Filming:"To film",Editing:"In edit",Review:"Changes",Approved:"With brand",Ready:"Ready",Posted:"Posted",Planned:"Planned"};
   const groups={};for(const cd of tray){(groups[cd.stage]||(groups[cd.stage]=[])).push(cd);}
   let trayInner="";
   if(tray.length){
@@ -899,9 +899,10 @@ function openPicker(creatorName){
   const creator=[...w.creators].find(c=>c.name===creatorName);
   if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
   const scheduled=new Set(creator.items.filter(it=>!state.removed.has(it.blockId)).map(it=>norm(it.title)));
-  // Picker offers only videos that still need work. "Approved" (9- sent to brand) and
-  // up are done, so they drop out — same DONE_RANK bar the rest of the dashboard uses.
-  const PICK_STAGES=new Set(["Idea","Scripting","Filming","Editing","Review"]);
+  // Picker offers only videos that still need work. "5- Script Approval" (script with the
+  // brand, video not made yet) stays in. "9- Approval" (edited video with the brand) and up
+  // are done, so they drop out — same DONE_RANK bar the rest of the dashboard uses.
+  const PICK_STAGES=new Set(["Idea","Scripting","ScriptApproval","Filming","Editing","Review"]);
   const named=v=>v.title&&v.title.trim()&&v.title.trim().toLowerCase()!=="untitled";
   const cands=state.pipeline.filter(v=>pretty(v.creator)===pretty(creatorName)&&PICK_STAGES.has(v.status)&&named(v)).sort((a,b)=>norm(a.title)<norm(b.title)?-1:1);
   const isNormal=["JOSHUA","NUEL","NEUL"].includes(creatorName);
