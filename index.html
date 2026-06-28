@@ -682,7 +682,17 @@ function renderWeekly(){
     }
   }
   html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
-  const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
+  // A column for every creator with a REELS board, even on weeks where the plan has no
+  // section for them yet. The missing column's "+ add video" builds the section in Notion
+  // on first use (uses the week's block id), so a creator never has to be added by hand.
+  const BOARD_CREATORS=["BRAD","CHRIS","LINDSAY","EMTECH","DUNCAN","VALERI","DYMTRO","JONATHAN"];
+  const present=new Set([...w.creators].map(c=>norm(c.name)));
+  const pipeHas=new Set(state.pipeline.map(v=>norm(pretty(v.creator))));
+  const cols=[...w.creators];
+  if(w.blockId) for(const nm of BOARD_CREATORS){
+    if(!present.has(nm)&&pipeHas.has(nm)) cols.push({name:nm,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[],planned:0,shipped:0,__missing:true});
+  }
+  const creators=cols.sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
     const items=live(c);
@@ -896,8 +906,9 @@ function openDrawer(name){
 
 function openPicker(creatorName){
   const w=state.weeks[state.wkIdx];
-  const creator=[...w.creators].find(c=>c.name===creatorName);
-  if(!creator||!creator.blockId){toast("Can't add here in preview — go live to write back.");return;}
+  let creator=[...w.creators].find(c=>c.name===creatorName);
+  if(!creator) creator={name:creatorName,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[]};
+  if(!creator.blockId&&!w.blockId){toast("Can't add here in preview — go live to write back.");return;}
   const scheduled=new Set(creator.items.filter(it=>!state.removed.has(it.blockId)).map(it=>norm(it.title)));
   // Picker offers only videos that still need work. "5- Script Approval" (script with the
   // brand, video not made yet) stays in. "9- Approval" (edited video with the brand) and up
@@ -945,9 +956,24 @@ async function submitPicks(creator,isNormal){
   if(!picks.length){toast("Nothing selected");return;}
   const btn=m.querySelector("#addbtn");btn.disabled=true;btn.textContent="Adding…";
   const w=state.weeks[state.wkIdx];let added=0;
+  // No section for this creator in the week yet — create the "JONATHAN" heading under the
+  // week first so the picks have somewhere to land. Needs the week's block id from kpis.
+  if(!creator.blockId){
+    if(!w.blockId){toast("Can't create a section here — reload once it's synced.");btn.disabled=false;btn.textContent="Add to week";return;}
+    const head=await addBlock({parentBlockId:w.blockId,sectionTitle:pretty(creator.name).toUpperCase()});
+    if(!head||!head.blockId){toast("Couldn't create "+pretty(creator.name)+"'s section");btn.disabled=false;btn.textContent="Add to week";return;}
+    creator.blockId=head.blockId;creator.anchors={PERSONAL:null,SPONSOR:null,NONE:null};
+    await csleep(220);
+  }
   for(const p of picks){
     const sec=p.type==="Sponsor"?"SPONSOR":"PERSONAL";
-    const after=creator.anchors[sec]||creator.anchors.NONE||creator.anchors.PERSONAL||creator.anchors.SPONSOR||null;
+    let after=creator.anchors[sec]||creator.anchors.NONE||creator.anchors.PERSONAL||creator.anchors.SPONSOR||null;
+    // Fresh section with no heading yet — drop a PERSONAL/SPONSOR heading to group under.
+    if(!after){
+      const h=await addBlock({parentBlockId:creator.blockId,heading:sec});
+      if(h&&h.blockId){after=h.blockId;creator.anchors[sec]=h.blockId;}
+      await csleep(180);
+    }
     try{
       const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false,videoId:p.videoId||"",videoUrl:p.videoUrl||""})});
@@ -957,6 +983,8 @@ async function submitPicks(creator,isNormal){
       added++;
     }catch(e){toast("Failed: "+e.message);}
   }
+  // Keep a newly created column on screen through the cache window until the next load.
+  if(added&&!w.creators.some(c=>norm(c.name)===norm(creator.name))) w.creators.push(creator);
   closeOverlays(); if(added)toast(added+" added to "+w.label);
   renderWeekly(); setTimeout(loadAll,1200);
 }
