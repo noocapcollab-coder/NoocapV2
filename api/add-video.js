@@ -53,7 +53,7 @@ export default async function handler(req, res) {
   const note = (body.note || "").trim();
   const checked = !!body.checked;
 
-  if (!parentBlockId || (!rawTitle && !body.heading)) {
+  if (!parentBlockId || (!rawTitle && !body.heading && !body.sectionTitle)) {
     res.status(400).json({ ok: false, error: "parentBlockId and title are required." });
     return;
   }
@@ -65,6 +65,9 @@ export default async function handler(req, res) {
   // Used by the weekly carry-over to build the section in an empty upcoming week
   // so Personal/Sponsor grouping survives a reload.
   const heading = body.heading ? (String(body.heading).toUpperCase() === "SPONSOR" ? "SPONSOR" : "PERSONAL") : null;
+  // A free-text heading_3 used to create a creator's section (e.g. "JONATHAN") in a week
+  // that doesn't have it yet, so a column can be planned into without hand-editing Notion.
+  const sectionTitle = body.sectionTitle ? String(body.sectionTitle).slice(0, 80) : null;
 
   // When the pick came from a pipeline video, link the title to that video's page.
   // The note (if any) is kept as a separate, unlinked run so the plain text still
@@ -77,7 +80,9 @@ export default async function handler(req, res) {
     todoRichText = [{ type: "text", text: { content: content.slice(0, 2000) } }];
   }
 
-  const childBlock = heading
+  const childBlock = sectionTitle
+    ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: sectionTitle } }], is_toggleable: true } }
+    : heading
     ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: heading } }] } }
     : { object: "block", type: "to_do", to_do: { rich_text: todoRichText, checked } };
 
