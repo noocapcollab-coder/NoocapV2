@@ -392,6 +392,7 @@ async function loadAll(fresh){
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
+  migrateLocalDays();
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
@@ -723,7 +724,7 @@ function renderWeekly(){
           STATUS_MENU.map(([key,label,st])=>`<div class="smi ${cur===st?"cur":""}" data-video="${esc(vid)}" data-stage="${key}" data-block="${esc(it.blockId)}"><span>${esc(label)}</span>${cur===st?"<span>✓</span>":""}</div>`).join("")+
           `</div>`;
       }
-      // day picker — assigns the video to a day this week (saved on this device)
+      // day picker — assigns the video to a day this week (writes POST DATE to Notion, shared)
       const pv=vid?pmap.get(idn(vid)):null;
       const postDay=pv&&pv.dueDate?String(pv.dueDate).slice(0,10):null;
       const effDay=it.blockId?calEffDay(ov,it.blockId,postDay,dayIso):null;
@@ -731,11 +732,11 @@ function renderWeekly(){
       if(it.blockId){
         dchip=`<button class="dchip ${effDay?"on":""}" data-block="${esc(it.blockId)}">${effDay?esc(dayName(effDay)):"set day"} ▾</button>`;
         if(state.openDay===it.blockId){
-          daymenu=`<div class="dmenu"><div class="smh">set day · saved on this device</div>`+
-            days.map(d=>`<div class="dmi ${effDay===d.iso?"cur":""}" data-block="${esc(it.blockId)}" data-day="${d.iso}"><span>${d.wd} ${d.dn}</span>${effDay===d.iso?"<span>✓</span>":""}</div>`).join("")+
-            `<div class="dmi ${!effDay?"cur":""}" data-block="${esc(it.blockId)}" data-day="unscheduled"><span>No day</span>${!effDay?"<span>✓</span>":""}</div></div>`;
+          daymenu=`<div class="dmenu"><div class="smh">set day · shared with the team</div>`+
+            days.map(d=>`<div class="dmi ${effDay===d.iso?"cur":""}" data-block="${esc(it.blockId)}" data-video="${esc(vid||"")}" data-day="${d.iso}"><span>${d.wd} ${d.dn}</span>${effDay===d.iso?"<span>✓</span>":""}</div>`).join("")+
+            `<div class="dmi ${!effDay?"cur":""}" data-block="${esc(it.blockId)}" data-video="${esc(vid||"")}" data-day="unscheduled"><span>No day</span>${!effDay?"<span>✓</span>":""}</div></div>`;
         }
-        if(effDay) placed[effDay].push({blockId:it.blockId,title:dtitle,color:ccol(c.name),done,stat:(done?stat.replace(/^✓\s*/,""):stat),cls:(done?"ok":(lv?"go":""))});
+        if(effDay) placed[effDay].push({blockId:it.blockId,vid:vid||"",title:dtitle,color:ccol(c.name),done,stat:(done?stat.replace(/^✓\s*/,""):stat),cls:(done?"ok":(lv?"go":""))});
       }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
@@ -749,7 +750,7 @@ function renderWeekly(){
   }
   html+=`</div>`;
   // schedule grid (Mon–Sat) — the same day assignments, drag to rearrange
-  const gcard=(c)=>`<div class="calcard ${c.done?"done":""}" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
+  const gcard=(c)=>`<div class="calcard ${c.done?"done":""}" draggable="true" data-block="${esc(c.blockId)}" data-video="${esc(c.vid||"")}" style="--ac:${c.color}">
     <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
     <div class="cf"><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
   const totalPlaced=days.reduce((n,d)=>n+placed[d.iso].length,0);
@@ -768,28 +769,80 @@ function renderWeekly(){
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
   root.querySelectorAll(".smi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyStatus(b.dataset.video,b.dataset.stage,b.dataset.block);});
   root.querySelectorAll(".dchip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openDay=state.openDay===b.dataset.block?null:b.dataset.block;state.openStatus=null;renderWeekly();});
-  root.querySelectorAll(".dmi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyDay(b.dataset.block,b.dataset.day);});
+  root.querySelectorAll(".dmi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyDay(b.dataset.block,b.dataset.video,b.dataset.day);});
   root.querySelectorAll(".calcard").forEach(el=>{
-    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",el.dataset.block);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",JSON.stringify({block:el.dataset.block,video:el.dataset.video||""}));e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
     el.addEventListener("dragend",()=>el.classList.remove("dragging"));
   });
   root.querySelectorAll(".calday,.dayunset").forEach(zone=>{
     zone.addEventListener("dragover",e=>{e.preventDefault();zone.classList.add("dragover");});
     zone.addEventListener("dragleave",e=>{if(!zone.contains(e.relatedTarget))zone.classList.remove("dragover");});
-    zone.addEventListener("drop",e=>{e.preventDefault();zone.classList.remove("dragover");const block=e.dataTransfer.getData("text/plain");if(!block)return;setCalOverride(block,zone.dataset.day);renderWeekly();});
+    zone.addEventListener("drop",e=>{e.preventDefault();zone.classList.remove("dragover");let d;try{d=JSON.parse(e.dataTransfer.getData("text/plain"));}catch(_){d=null;}if(!d||!d.block)return;setDay(d.block,d.video,zone.dataset.day);});
   });
   if(!window.__menuCloser){window.__menuCloser=true;document.addEventListener("click",(e)=>{let ch=false;
     if(state.openStatus&&!e.target.closest(".schip")&&!e.target.closest(".smenu")){state.openStatus=null;ch=true;}
     if(state.openDay&&!e.target.closest(".dchip")&&!e.target.closest(".dmenu")){state.openDay=null;ch=true;}
     if(ch&&state.view==="weekly")renderWeekly();});}
 }
-// Assign (or clear) a weekly card's day — saved on this device, mirrored on the Calendar tab
-function setWeeklyDay(blockId,day){ state.openDay=null; setCalOverride(blockId,day); renderWeekly(); }
+// Assign (or clear) a card's day. For a video linked to its Notion page we write the day
+// into that video's POST DATE so the whole team's calendar shows it; for an unlinked item
+// (no page to write to) we fall back to saving on this device. `day` is an ISO date or
+// "unscheduled". The in-memory post date updates immediately so the card moves at once,
+// then a fresh pull confirms it from Notion.
+async function setDateNotion(pageId,iso){
+  try{const r=await getJSON("/api/set-date",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId,date:iso})});return !!(r&&r.ok);}catch(e){return false;}
+}
+async function setDay(blockId,videoId,day){
+  state.openDay=null;
+  const iso=(day&&day!=="unscheduled")?day:null;
+  if(videoId){
+    const pv=state.pipeline.find(v=>v.id&&idn(v.id)===idn(videoId));
+    const prev=pv?pv.dueDate:undefined;
+    if(pv)pv.dueDate=iso;            // optimistic — place by the new post date right away
+    setCalOverride(blockId,null);    // Notion is the shared source of truth for linked videos
+    render();
+    const ok=await setDateNotion(videoId,iso);
+    if(!ok){ if(pv)pv.dueDate=prev; setCalOverride(blockId,day); render(); toast("Couldn't reach Notion — kept on this device"); return; }
+    toast(iso?"Scheduled · shared with the team":"Moved to unscheduled · shared");
+    loadAll(true);
+  }else{
+    setCalOverride(blockId,day); render();
+    toast("Saved on this device — no linked video to sync");
+  }
+}
+function setWeeklyDay(blockId,videoId,day){ setDay(blockId,videoId,day); }
+
+// One-time lift: any days set before scheduling synced live only to this browser. On first
+// load after the sync shipped, push those (linked, dated) assignments into Notion so the
+// team sees them, then drop the local copy so Notion stays the single source of truth.
+let __daysMigrated=false;
+async function migrateLocalDays(){
+  if(__daysMigrated)return;
+  if(localStorage.getItem("noocap_days_migrated")==="1"){__daysMigrated=true;return;}
+  const ov=calOverrides();const keys=Object.keys(ov);
+  if(!keys.length){localStorage.setItem("noocap_days_migrated","1");__daysMigrated=true;return;}
+  if(!state.weeks.length||!state.pipeline.length)return; // wait until data is in
+  __daysMigrated=true;
+  const lk=liveLookup(),byId=liveById();const bv={};
+  for(const w of state.weeks)for(const c of w.creators)for(const it of c.items){
+    const {vid}=resolveItem(lk,byId,c.name,it);if(it.blockId&&vid)bv[it.blockId]=vid;
+  }
+  let n=0;
+  for(const bid of keys){
+    const day=ov[bid],vid=bv[bid];
+    if(vid&&day&&day!=="unscheduled"&&/^\d{4}-\d{2}-\d{2}$/.test(day)){
+      if(await setDateNotion(vid,day)){setCalOverride(bid,null);n++;}
+      await csleep(180);
+    }
+  }
+  localStorage.setItem("noocap_days_migrated","1");
+  if(n){toast("Synced "+n+" saved day"+(n>1?"s":"")+" to Notion for the team");loadAll(true);}
+}
 
 // ---- Calendar tab -------------------------------------------------------
 // A Mon–Sat board for the selected week. Each planned video sits on its Notion
-// post date; you can drag it to any day and the move is saved on this device
-// (localStorage) so it survives a reload and the 20s sync. Notion stays read-only.
+// post date; you can drag it to any day and the move writes that video's POST DATE
+// back to Notion, so the whole team's calendar shows the same schedule.
 const CAL_KEY="noocap_cal_overrides";
 function calOverrides(){try{return JSON.parse(localStorage.getItem(CAL_KEY)||"{}")||{};}catch(e){return {};}}
 function setCalOverride(blockId,val){const o=calOverrides();if(val==null)delete o[blockId];else o[blockId]=val;try{localStorage.setItem(CAL_KEY,JSON.stringify(o));}catch(e){}}
@@ -820,17 +873,17 @@ function renderCalendar(){
       if(done){stat=((lv&&lv.status==="Posted")||it.checked)?"posted":(lv&&lv.status==="Approved"?"sent":"ready");cls="ok";}
       else if(lv){stat=STAGE_LABEL[lv.status]||"in progress";cls="go";}
       else {stat="planned";cls="";}
-      const card={blockId:it.blockId,title,creator:c.name,color:ccol(c.name),done:!!done,stat,cls,postDay,stage:lv?lv.status:(it.checked?"Posted":"Planned")};
+      const card={blockId:it.blockId,vid:vid||"",title,creator:c.name,color:ccol(c.name),done:!!done,stat,cls,postDay,stage:lv?lv.status:(it.checked?"Posted":"Planned")};
       const eff=calEffDay(ov,it.blockId,postDay,dayIso);
       (eff?buckets[eff]:tray).push(card);
     }
   }
   const __nowIdx=currentWeekIdx();
   const opts=state.weeks.map((x,i)=>`<option value="${i}" ${i===state.wkIdx?"selected":""}>${esc(x.label)}${i===__nowIdx?" · now":""}</option>`).join("");
-  const cardHtml=(c)=>`<div class="calcard ${c.done?"done":""}" draggable="true" data-block="${esc(c.blockId)}" style="--ac:${c.color}">
+  const cardHtml=(c)=>`<div class="calcard ${c.done?"done":""}" draggable="true" data-block="${esc(c.blockId)}" data-video="${esc(c.vid||"")}" style="--ac:${c.color}">
     <div class="ct"><span class="grip">⋮⋮</span><span class="tt">${esc(c.title)}</span></div>
     <div class="cf"><span class="who">${esc(pretty(c.creator))}</span><span class="st ${c.cls}">${c.done?"✓ ":""}${esc(c.stat)}</span></div></div>`;
-  let html=`<div class="calbar"><span class="h">Calendar</span><span class="s">drag to set a day · finished videos shown struck through · saved on this device</span>
+  let html=`<div class="calbar"><span class="h">Calendar</span><span class="s">drag to set a day · shared with the team via Notion · finished videos struck through</span>
     <select id="calsel">${opts}</select></div><div class="calgrid">`;
   for(const d of days){
     html+=`<div class="calday ${d.iso===todayIso?"today":""}" data-day="${d.iso}">
@@ -852,7 +905,7 @@ function renderCalendar(){
   root.innerHTML=html;
   document.getElementById("calsel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderCalendar();};
   root.querySelectorAll(".calcard").forEach(el=>{
-    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",el.dataset.block);e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
+    el.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/plain",JSON.stringify({block:el.dataset.block,video:el.dataset.video||""}));e.dataTransfer.effectAllowed="move";el.classList.add("dragging");});
     el.addEventListener("dragend",()=>el.classList.remove("dragging"));
   });
   root.querySelectorAll("[data-day]").forEach(zone=>{
@@ -860,9 +913,8 @@ function renderCalendar(){
     zone.addEventListener("dragleave",e=>{if(!zone.contains(e.relatedTarget))zone.classList.remove("dragover");});
     zone.addEventListener("drop",e=>{
       e.preventDefault();zone.classList.remove("dragover");
-      const block=e.dataTransfer.getData("text/plain");if(!block)return;
-      setCalOverride(block,zone.dataset.day);
-      renderCalendar();
+      let d;try{d=JSON.parse(e.dataTransfer.getData("text/plain"));}catch(_){d=null;}if(!d||!d.block)return;
+      setDay(d.block,d.video,zone.dataset.day);
     });
   });
 }
