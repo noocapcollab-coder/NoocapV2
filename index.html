@@ -70,6 +70,7 @@
   .card .meta{display:flex;align-items:center;gap:7px}
   .card.carry{opacity:.74}
   .card.carry::before{opacity:.5;box-shadow:none}
+  .lastwk{display:inline-block;margin-left:7px;font-size:9.5px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;color:var(--accent2);background:color-mix(in srgb,var(--accent2) 14%,transparent);border:.5px solid color-mix(in srgb,var(--accent2) 34%,transparent);padding:1px 6px;border-radius:6px;vertical-align:middle;white-space:nowrap}
   .carrybar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 2px 14px;padding:11px 15px;border-radius:13px;background:linear-gradient(90deg,color-mix(in srgb,var(--accent2) 14%,transparent),color-mix(in srgb,var(--accent) 9%,transparent));border:.5px solid color-mix(in srgb,var(--accent2) 38%,var(--line))}
   .carrybar .ct{font-size:13px;color:var(--text);display:flex;align-items:center;gap:9px}
   .carrybar .ct b{font-family:var(--mono);color:var(--accent2)}
@@ -748,7 +749,7 @@ function renderWeekly(){
       }
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
-        <div class="t">${esc(dtitle)}</div>
+        <div class="t">${esc(dtitle)}${isCarried(it)?`<span class="lastwk">↩ last week</span>`:""}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
         ${statusEl}</div>${menu}
         <div class="meta2">${dchip}</div>${daymenu}</div>`;
