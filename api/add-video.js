@@ -131,7 +131,10 @@ export default async function handler(req, res) {
     });
     if (!r.ok) {
       const text = await r.text();
-      res.status(502).json({ ok: false, error: `Notion ${r.status}: ${text.slice(0, 240)}` });
+      // Surface rate-limit / conflict / server errors with their real status so the client
+      // can back off and retry, instead of flattening everything to a dropped write.
+      const status = (r.status === 429 || r.status === 409 || r.status >= 500) ? r.status : 502;
+      res.status(status).json({ ok: false, error: `Notion ${r.status}: ${text.slice(0, 240)}`, notionStatus: r.status });
       return;
     }
     const json = await r.json();
