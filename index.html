@@ -1144,7 +1144,9 @@ function buildCarryPlan(){
   let plan=[],count=0;
   for(const c of cur.w.creators){
     const nc=needsCreate?null:nextByName.get(norm(c.name));
-    if(!needsCreate&&!nc) continue;
+    // Include creators even when they have no section in next week yet — the rollover builds
+    // the section on the fly. This is what lets a re-run finish anyone a rate-limited earlier
+    // pass left out, instead of skipping them forever.
     const existing=nc?new Set((nc.items||[]).map(it=>norm((it.title||"").replace(/⤴/g,"").trim()))):new Set();
     const groups={Personal:[],Sponsor:[]};
     for(const it of c.items){
@@ -1163,7 +1165,21 @@ function buildCarryPlan(){
   return {cur,next,rolloverActive,needsCreate,count,plan};
 }
 const csleep=(ms)=>new Promise(r=>setTimeout(r,ms));
-async function addBlock(body){try{return await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});}catch(e){return null;}}
+// Write one block, retrying through Notion's rate limit rather than dropping the write.
+// A 429 (too fast), 409 (conflict) or 5xx gets backed off and retried a few times so a
+// long rollover doesn't lose creators partway; only a real error or exhausted retries
+// returns null.
+async function addBlock(body){
+  for(let attempt=0;attempt<6;attempt++){
+    try{
+      const r=await fetch("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      if(r.status===429||r.status===409||r.status>=500){ await csleep(600*(attempt+1)); continue; }
+      const j=await r.json().catch(()=>null);
+      return (j&&j.ok)?j:null;
+    }catch(e){ await csleep(500*(attempt+1)); }
+  }
+  return null;
+}
 // Copy this week's pending videos into next week, tagged with ⤴ so they read as carried.
 // Runs from the button or automatically on load; dedupe by title and a duplicate-safe week
 // create keep it idempotent, so repeated or overlapping runs never double up.
@@ -1187,7 +1203,7 @@ async function runCarryover(opts){
       if(!next.w.parentId){if(!auto)toast("Can't place the new week yet — reload once synced");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
       const wk=await addBlock({parentBlockId:next.w.parentId,afterBlockId:next.w.afterId||undefined,weekTitle:next.w.rawLabel});
       if(!wk||!wk.blockId){if(!auto)toast("Couldn't create the week");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
-      newWeekBlockId=wk.blockId; await csleep(240);
+      newWeekBlockId=wk.blockId; await csleep(400);
     }
     for(const p of plan){
       // In a brand-new week (or an existing one missing this creator) build the creator
@@ -1197,16 +1213,16 @@ async function runCarryover(opts){
         const parent=newWeekBlockId||next.w.blockId;
         const head=await addBlock({parentBlockId:parent,sectionTitle:pretty(p.creator).toUpperCase()});
         if(!head||!head.blockId)continue;
-        creatorBlockId=head.blockId; anchors={PERSONAL:null,SPONSOR:null,NONE:null}; await csleep(200);
+        creatorBlockId=head.blockId; anchors={PERSONAL:null,SPONSOR:null,NONE:null}; await csleep(400);
       }
       for(const type of ["Personal","Sponsor"]){
         const items=p.groups[type]; if(!items.length)continue;
         let after=type==="Sponsor"?anchors.SPONSOR:anchors.PERSONAL;
-        if(!after){ const h=await addBlock({parentBlockId:creatorBlockId,heading:type.toUpperCase()}); if(h&&h.blockId)after=h.blockId; await csleep(200); }
+        if(!after){ const h=await addBlock({parentBlockId:creatorBlockId,heading:type.toUpperCase()}); if(h&&h.blockId)after=h.blockId; await csleep(400); }
         for(const it of items){
           const r=await addBlock({parentBlockId:creatorBlockId,afterBlockId:after||undefined,title:it.title,note:(it.note?it.note+" ⤴":"⤴"),videoUrl:it.videoUrl,videoId:it.videoId,checked:false});
           if(r&&r.blockId){after=r.blockId;added++;}
-          await csleep(200);
+          await csleep(360);
         }
       }
     }
