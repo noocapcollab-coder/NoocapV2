@@ -53,7 +53,7 @@ export default async function handler(req, res) {
   const note = (body.note || "").trim();
   const checked = !!body.checked;
 
-  if (!parentBlockId || (!rawTitle && !body.heading && !body.sectionTitle)) {
+  if (!parentBlockId || (!rawTitle && !body.heading && !body.sectionTitle && !body.weekTitle)) {
     res.status(400).json({ ok: false, error: "parentBlockId and title are required." });
     return;
   }
@@ -68,6 +68,34 @@ export default async function handler(req, res) {
   // A free-text heading_3 used to create a creator's section (e.g. "JONATHAN") in a week
   // that doesn't have it yet, so a column can be planned into without hand-editing Notion.
   const sectionTitle = body.sectionTitle ? String(body.sectionTitle).slice(0, 80) : null;
+  // A week heading (e.g. "JULY 20 - JULY 25") for the automatic rollover. Same block shape
+  // as a section, but created duplicate-safe: if a week with this label already exists under
+  // the parent (another open beat us to it), we hand back that block instead of adding a
+  // second one, so two people loading at once can never create twin weeks.
+  const weekTitle = body.weekTitle ? String(body.weekTitle).slice(0, 120) : null;
+
+  if (weekTitle) {
+    try {
+      const kidsRes = await fetch(`${NOTION_API}/blocks/${parentBlockId}/children?page_size=100`, {
+        headers: { Authorization: `Bearer ${token}`, "Notion-Version": NOTION_VERSION },
+      });
+      if (kidsRes.ok) {
+        const kids = await kidsRes.json();
+        const norm = (s) => (s || "").toUpperCase().replace(/\s+/g, "");
+        const want = norm(weekTitle);
+        for (const b of kids.results || []) {
+          const d = b[b.type];
+          const txt = d && d.rich_text ? d.rich_text.map((t) => t.plain_text).join("") : "";
+          if (txt && norm(txt) === want) {
+            res.status(200).json({ ok: true, blockId: b.id, existed: true, content: weekTitle });
+            return;
+          }
+        }
+      }
+    } catch (e) { /* fall through and create it */ }
+  }
+
+  const toggleHeading = sectionTitle || weekTitle;
 
   // When the pick came from a pipeline video, link the title to that video's page.
   // The note (if any) is kept as a separate, unlinked run so the plain text still
@@ -80,8 +108,8 @@ export default async function handler(req, res) {
     todoRichText = [{ type: "text", text: { content: content.slice(0, 2000) } }];
   }
 
-  const childBlock = sectionTitle
-    ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: sectionTitle } }], is_toggleable: true } }
+  const childBlock = toggleHeading
+    ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: toggleHeading } }], is_toggleable: true } }
     : heading
     ? { object: "block", type: "heading_3", heading_3: { rich_text: [{ type: "text", text: { content: heading } }] } }
     : { object: "block", type: "to_do", to_do: { rich_text: todoRichText, checked } };
