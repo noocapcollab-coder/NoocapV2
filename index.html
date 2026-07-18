@@ -1105,8 +1105,15 @@ const MONTHS_ABBR=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","
 function rawWeekLabel(monMs){const a=new Date(monMs),b=new Date(monMs+5*DAY_MS);return `${MONTHS_FULL[a.getMonth()]} ${a.getDate()} - ${MONTHS_FULL[b.getMonth()]} ${b.getDate()}`;}
 function dispWeekLabel(monMs){const a=new Date(monMs),b=new Date(monMs+5*DAY_MS);return a.getMonth()===b.getMonth()?`${MONTHS_ABBR[a.getMonth()]} ${a.getDate()}–${b.getDate()}`:`${MONTHS_ABBR[a.getMonth()]} ${a.getDate()} – ${MONTHS_ABBR[b.getMonth()]} ${b.getDate()}`;}
 
+// Whole local days since a week's Monday, in the viewer's own timezone. 6 or more means
+// the Mon–Sat week is done and we're into their Sunday. Comparing local calendar days
+// (rather than raw timestamps against a server-clock midnight) is what makes the rollover
+// open on the team's Sunday instead of hours later when a UTC/US server ticks over.
+const startOfDay=(ms)=>{const d=new Date(ms);d.setHours(0,0,0,0);return d.getTime();};
+const daysSinceMon=(sortKey)=>Math.round((startOfDay(Date.now())-startOfDay(sortKey))/DAY_MS);
+
 // Current week + where to roll into. If a later week already exists on the page, that's
-// the target. If none does and the current week is wrapping up (its Saturday/Sunday on),
+// the target. If none does and the current Mon–Sat week is over (their local Sunday on),
 // synthesize the next Mon–Sat and flag it needsCreate so the rollout builds it in Notion.
 function weekRefs(){
   const ci=currentWeekIdx();
@@ -1115,13 +1122,14 @@ function weekRefs(){
   if(cur){let bestKey=Infinity,bi=-1;
     state.weeks.forEach((w,i)=>{if(w.sortKey>cur.w.sortKey&&w.sortKey<bestKey){bestKey=w.sortKey;bi=i;}});
     if(bi>=0) next={w:state.weeks[bi],i:bi};}
+  const curOver=cur?daysSinceMon(cur.w.sortKey)>=6:false;
   let needsCreate=false;
-  if(cur&&!next&&Date.now()>=cur.w.sortKey+6*DAY_MS){
+  if(cur&&!next&&curOver){
     const start=cur.w.sortKey+7*DAY_MS; // next Monday
     next={w:{label:dispWeekLabel(start),rawLabel:rawWeekLabel(start),sortKey:start,parentId:cur.w.parentId,afterId:cur.w.blockId,blockId:null,creators:[]},i:-1};
     needsCreate=true;
   }
-  const rolloverActive=!!(cur&&next&&Date.now()>=next.w.sortKey-DAY_MS);
+  const rolloverActive=!!(cur&&next&&curOver);
   return {cur,next,rolloverActive,needsCreate};
 }
 // Work out which still-in-production videos from the current week should roll forward.
