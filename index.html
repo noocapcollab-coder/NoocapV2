@@ -385,6 +385,28 @@ const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").tr
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null,openDay:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
+// POST to a Notion-writing endpoint, riding through Notion's short rate limits and transient
+// errors instead of failing on the first bounce. Returns {ok:true,data} or {ok:false,rateLimited,error}
+// and never throws. A big rollover can briefly exhaust Notion's write budget, so an edit made
+// right after should wait and retry rather than surfacing a raw 429.
+async function notionPost(url,body,retries){
+  retries=(retries==null?3:retries);
+  for(let attempt=0;attempt<=retries;attempt++){
+    try{
+      const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      let j=null; try{j=await r.json();}catch(_){}
+      const limited=r.status===429||(j&&/rate.?limit/i.test(String(j.error||"")));
+      if(limited||r.status===409||r.status>=500){
+        if(attempt<retries){await csleep(700*(attempt+1));continue;}
+        return {ok:false,rateLimited:!!limited,error:(j&&j.error)||("HTTP "+r.status)};
+      }
+      if(j&&j.ok)return {ok:true,data:j};
+      return {ok:false,error:(j&&j.error)||("HTTP "+r.status)};
+    }catch(e){ if(attempt<retries){await csleep(600*(attempt+1));continue;} return {ok:false,error:String(e.message||e)}; }
+  }
+  return {ok:false,error:"failed"};
+}
+function writeErr(res){return res&&res.rateLimited?"Notion's briefly rate-limited after a burst of edits — give it a minute, then try again.":"Couldn't reach Notion just now — try again in a moment.";}
 async function loadAll(fresh){
   let okAny=false,err=null;
   try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
@@ -538,15 +560,9 @@ function closeMoveMenu(){const m=document.getElementById("mvmenu");if(m)m.remove
 async function moveCard(page,title,from,to){
   if(!page||!to||from===to)return;
   if(!confirm(`Move “${title}” to ${to}?`))return;
-  try{
-    const r=await fetch("/api/set-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId:page,stage:to})});
-    const j=await r.json();
-    if(!j.ok)throw new Error(j.error||"write failed");
-    await loadAll(true);        // re-pull fresh from Notion so the board matches reality
-  }catch(err){
-    alert("Couldn't move that one — "+(err.message||err)+"\nThe board will refresh to show what's actually in Notion.");
-    loadAll(true);
-  }
+  const res=await notionPost("/api/set-status",{pageId:page,stage:to});
+  if(res.ok){ await loadAll(true); }        // re-pull fresh from Notion so the board matches reality
+  else { toast(writeErr(res)); loadAll(true); }
 }
 
 // ---- Focus: one screen for "what needs me + who's loaded" --------------------
@@ -800,7 +816,8 @@ function renderWeekly(){
 // "unscheduled". The in-memory post date updates immediately so the card moves at once,
 // then a fresh pull confirms it from Notion.
 async function setDateNotion(pageId,iso){
-  try{const r=await getJSON("/api/set-date",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId,date:iso})});return !!(r&&r.ok);}catch(e){return false;}
+  const res=await notionPost("/api/set-date",{pageId,date:iso});
+  return !!res.ok;
 }
 async function setDay(blockId,videoId,day){
   state.openDay=null;
@@ -934,11 +951,9 @@ function renderCalendar(){
 async function setWeeklyStatus(videoId,stage,blockId){
   state.openStatus=null;
   if(!videoId){toast("This card isn't linked to a video yet.");renderWeekly();return;}
-  try{
-    await getJSON("/api/set-status",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pageId:videoId,stage})});
-    toast("Status updated");
-    loadAll(true);
-  }catch(e){toast("Couldn't update: "+e.message);renderWeekly();}
+  const res=await notionPost("/api/set-status",{pageId:videoId,stage});
+  if(res.ok){ toast("Status updated"); loadAll(true); }
+  else { toast(writeErr(res)); renderWeekly(); }
 }
 
 function openDrawer(name){
@@ -1057,12 +1072,9 @@ async function submitPicks(creator,isNormal){
 async function removeCard(blockId,title){
   if(!blockId)return;
   if(!confirm(`Remove “${title||"this video"}” from the week?`))return;
-  try{
-    await getJSON("/api/remove-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({blockId})});
-    state.removed.add(blockId);
-    toast("Removed");
-    renderWeekly();
-  }catch(e){toast("Couldn't remove: "+e.message);}
+  const res=await notionPost("/api/remove-video",{blockId});
+  if(res.ok){ state.removed.add(blockId); toast("Removed"); renderWeekly(); }
+  else toast(writeErr(res));
 }
 
 // Automatic weekly carry-over.
