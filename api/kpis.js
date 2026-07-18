@@ -173,7 +173,10 @@ export default async function handler(req, res) {
   const token = process.env.NOTION_TOKEN;
   if (!token) { res.status(500).json({ ok: false, error: "Missing NOTION_TOKEN environment variable." }); return; }
 
-  if (cache && Date.now() - cache.at < CACHE_TTL_MS) { res.status(200).json(cache.data); return; }
+  if (cache && Date.now() - cache.at < CACHE_TTL_MS) {
+    const fresh = req.query && (req.query.fresh === "1" || req.query.fresh === "true");
+    if (!fresh) { res.status(200).json(cache.data); return; }
+  }
 
   try {
     const db = await notion(`/databases/${KPIS_DB}/query`, token, { page_size: 20 });
