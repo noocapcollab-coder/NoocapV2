@@ -388,12 +388,13 @@ async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json(
 async function loadAll(fresh){
   let okAny=false,err=null;
   try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
-  try{const k=await getJSON("/api/kpis");state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;
+  try{const k=await getJSON("/api/kpis"+(fresh?"?fresh=1":""));state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;
     if(!state.weekPicked&&state.weeks.length)state.wkIdx=defaultWeekIdx();okAny=true;}catch(e){err=err||e;}
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
   migrateLocalDays();
+  maybeAutoRoll();
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
@@ -772,7 +773,7 @@ function renderWeekly(){
   html+=`</div><div class="dayunset" data-day="unscheduled">Drag a card here to clear its day</div>`;
   root.innerHTML=html;
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
-  { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=runCarryover; }
+  { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=()=>runCarryover(); }
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
@@ -1156,13 +1157,15 @@ function buildCarryPlan(){
 const csleep=(ms)=>new Promise(r=>setTimeout(r,ms));
 async function addBlock(body){try{return await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});}catch(e){return null;}}
 // Copy this week's pending videos into next week, tagged with ⤴ so they read as carried.
-// One tap rather than silent, because it writes to the team's live plan; dedupe keeps re-taps safe.
-async function runCarryover(){
+// Runs from the button or automatically on load; dedupe by title and a duplicate-safe week
+// create keep it idempotent, so repeated or overlapping runs never double up.
+async function runCarryover(opts){
+  const auto=!!(opts&&opts.auto);
   if(window.__carrying)return; 
   const {cur,next,count,plan,needsCreate}=buildCarryPlan();
-  if(!next){toast("No next week to roll into yet");return;}
-  if(!needsCreate&&!count){toast("Next week's already up to date");return;}
-  if(count>80){toast("That's a lot to roll — open the week and check first");return;}
+  if(!next){if(!auto)toast("No next week to roll into yet");return;}
+  if(!needsCreate&&!count){if(!auto)toast("Next week's already up to date");return;}
+  if(count>80){if(!auto)toast("That's a lot to roll — open the week and check first");return;}
   window.__carrying=true;
   const btn=document.getElementById("carrybtn"); if(btn){btn.disabled=true;btn.textContent=needsCreate?"Starting…":"Rolling…";}
   let added=0, newWeekBlockId=null;
@@ -1170,10 +1173,12 @@ async function runCarryover(){
     // Create the upcoming week block first if the page doesn't have one yet, placed right
     // after the current week so it sits with its siblings. It's a toggleable heading whose
     // text is the week label, which is exactly what the KPI reader recognises as a week.
+    // weekTitle makes the create duplicate-safe: if another open already made this week,
+    // the endpoint hands back that block instead of adding a second one.
     if(needsCreate){
-      if(!next.w.parentId){toast("Can't place the new week yet — reload once synced");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
-      const wk=await addBlock({parentBlockId:next.w.parentId,afterBlockId:next.w.afterId||undefined,sectionTitle:next.w.rawLabel});
-      if(!wk||!wk.blockId){toast("Couldn't create the week");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
+      if(!next.w.parentId){if(!auto)toast("Can't place the new week yet — reload once synced");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
+      const wk=await addBlock({parentBlockId:next.w.parentId,afterBlockId:next.w.afterId||undefined,weekTitle:next.w.rawLabel});
+      if(!wk||!wk.blockId){if(!auto)toast("Couldn't create the week");if(btn){btn.disabled=false;btn.textContent="Start "+next.w.label+" →";}window.__carrying=false;return;}
       newWeekBlockId=wk.blockId; await csleep(240);
     }
     for(const p of plan){
@@ -1197,14 +1202,37 @@ async function runCarryover(){
         }
       }
     }
-    toast(needsCreate?`Started ${next.w.label}${added?` with ${added} video${added===1?"":"s"}`:""}`:`Rolled ${added} video${added===1?"":"s"} into ${next.w.label}`);
+    if(added||!auto) toast(needsCreate?`Started ${next.w.label}${added?` with ${added} video${added===1?"":"s"}`:""}`:`Rolled ${added} video${added===1?"":"s"} into ${next.w.label}`);
     try{localStorage.setItem("noocap_carried_at",String(Date.now()));}catch(e){}
     await loadAll(true);
-    // Jump to the freshly created/updated week so it's what they see.
-    const ni=state.weeks.findIndex(w=>Math.abs(w.sortKey-next.w.sortKey)<DAY_MS/2);
-    if(ni>=0){state.wkIdx=ni;state.weekPicked=true;renderWeekly();}
-  }catch(e){ toast("Roll-up hit a snag — some may not have copied"); }
+    // A manual roll jumps you onto the new week; an automatic one leaves your view where
+    // it is (usually the current week) and just makes the new week available.
+    if(!auto){
+      const ni=state.weeks.findIndex(w=>Math.abs(w.sortKey-next.w.sortKey)<DAY_MS/2);
+      if(ni>=0){state.wkIdx=ni;state.weekPicked=true;renderWeekly();}
+    }
+  }catch(e){ if(!auto)toast("Roll-up hit a snag — some may not have copied"); }
   finally{ window.__carrying=false; }
+}
+// Fire the rollover on its own once the new-week window is open, so nobody has to tap it.
+// One attempt per target week per session; before committing it re-reads the plan fresh
+// from Notion so a week another teammate just created is seen and not remade.
+let __autoRolledFor=null;
+async function refreshWeeksFresh(){
+  try{const k=await getJSON("/api/kpis?fresh=1");if(k&&k.ok&&Array.isArray(k.weeks)){state.weeks=k.weeks;if(state.wkIdx>=state.weeks.length)state.wkIdx=0;}}catch(e){}
+}
+async function maybeAutoRoll(){
+  if(window.__carrying)return;
+  const cp0=buildCarryPlan();
+  if(!cp0.rolloverActive||!cp0.next)return;
+  if(!cp0.needsCreate&&!cp0.count)return;
+  if(__autoRolledFor===cp0.next.w.sortKey)return;
+  __autoRolledFor=cp0.next.w.sortKey;              // claim this cycle so the 20s poll won't re-fire
+  await refreshWeeksFresh();                        // confirm against live Notion before writing
+  const cp=buildCarryPlan();
+  if(!cp.rolloverActive||!cp.next){__autoRolledFor=null;return;}
+  if(!cp.needsCreate&&!cp.count)return;             // someone else already handled it
+  runCarryover({auto:true});
 }
 function showScrim(){document.getElementById("scrim").classList.add("show");}
 
