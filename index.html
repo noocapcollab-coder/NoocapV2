@@ -1042,6 +1042,7 @@ async function submitPicks(creator,isNormal){
     creator.blockId=head.blockId;creator.anchors={PERSONAL:null,SPONSOR:null,NONE:null};
     await csleep(220);
   }
+  let failed=0;
   for(const p of picks){
     const sec=p.type==="Sponsor"?"SPONSOR":"PERSONAL";
     let after=creator.anchors[sec]||creator.anchors.NONE||creator.anchors.PERSONAL||creator.anchors.SPONSOR||null;
@@ -1049,21 +1050,28 @@ async function submitPicks(creator,isNormal){
     if(!after){
       const h=await addBlock({parentBlockId:creator.blockId,heading:sec});
       if(h&&h.blockId){after=h.blockId;creator.anchors[sec]=h.blockId;}
-      await csleep(180);
+      await csleep(220);
     }
-    try{
-      const res=await getJSON("/api/add-video",{method:"POST",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false,videoId:p.videoId||"",videoUrl:p.videoUrl||""})});
+    // Resilient write: addBlock rides through Notion's rate limit and retries, so a video
+    // added right after the weekly roll (when Notion is briefly throttled) isn't silently
+    // dropped the way the old plain write was.
+    const res=await addBlock({parentBlockId:creator.blockId,afterBlockId:after,title:p.title,note:p.note,checked:false,videoId:p.videoId||"",videoUrl:p.videoUrl||""});
+    if(res&&res.blockId){
       creator.items.push({title:p.title,note:p.note,checked:false,type:isNormal?(p.type||"Personal"):p.type,blockId:res.blockId,videoId:p.videoId||null});
       creator.anchors[sec]=res.blockId||after;creator.planned++;w.totals.planned++;
       if(isNormal)w.totals.normalPlanned++;else w.totals.aiPlanned++;
       added++;
-    }catch(e){toast("Failed: "+e.message);}
+    }else failed++;
+    await csleep(240);
   }
   // Keep a newly created column on screen through the cache window until the next load.
   if(added&&!w.creators.some(c=>norm(c.name)===norm(creator.name))) w.creators.push(creator);
-  closeOverlays(); if(added)toast(added+" added to "+w.label);
-  renderWeekly(); setTimeout(loadAll,1200);
+  closeOverlays();
+  if(added)toast(added+" added to "+w.label+(failed?` · ${failed} didn't save`:""));
+  else if(failed)toast("Notion's briefly rate-limited — give it a minute and try again.");
+  // Re-pull FRESH so the just-written videos come back from Notion rather than the stale
+  // ~20s KPI cache — reading the cache is what made added videos vanish on the next load.
+  renderWeekly(); setTimeout(()=>loadAll(true),700);
 }
 
 // Remove one planned video from the week. Archives its checkbox in Notion, then
