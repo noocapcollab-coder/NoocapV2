@@ -32,6 +32,10 @@ const MAX_PERIODS = Number(process.env.KPIS_MAX_PERIODS || 3);
 // without a window the reader's request budget is spent on months of old weeks before it
 // reaches the current one. Older weeks are still listed but not descended into.
 const WEEKS_TO_READ = Number(process.env.KPIS_WEEKS_TO_READ || 8);
+// Live KPI page. The old page accumulated three months of weeks and grew too large for Notion
+// to read or edit reliably, so the dashboard now reads this fresh page. When set, the reader
+// skips the database query and reads only this page. Override with env KPIS_PAGE_ID if it moves.
+const KPIS_PAGE_ID = process.env.KPIS_PAGE_ID || "3bd508e9-9dda-814b-ae5d-d3fcea704f51";
 let cache = null;
 
 const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
@@ -197,10 +201,15 @@ export default async function handler(req, res) {
   }
 
   try {
-    const db = await notion(`/databases/${KPIS_DB}/query`, token, { page_size: 20 });
-    const periods = (db.results || [])
-      .sort((a, b) => new Date(b.last_edited_time || 0) - new Date(a.last_edited_time || 0))
-      .slice(0, MAX_PERIODS);
+    let periods;
+    if (KPIS_PAGE_ID) {
+      periods = [{ id: KPIS_PAGE_ID }];
+    } else {
+      const db = await notion(`/databases/${KPIS_DB}/query`, token, { page_size: 20 });
+      periods = (db.results || [])
+        .sort((a, b) => new Date(b.last_edited_time || 0) - new Date(a.last_edited_time || 0))
+        .slice(0, MAX_PERIODS);
+    }
 
     const ctx = { weeks: new Map(), req: 0, week: null, creator: null, section: "NONE",
       oldCutoff: Date.now() - WEEKS_TO_READ * 7 * 86400000 };
