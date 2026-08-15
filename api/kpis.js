@@ -26,24 +26,38 @@ const KNOWN_CREATORS = (process.env.KPI_CREATORS ||
   .split(",").map((s) => s.trim().toUpperCase());
 
 const CACHE_TTL_MS = Number(process.env.KPIS_CACHE_TTL_MS || 20000);
-const MAX_REQ = Number(process.env.KPIS_MAX_REQ || 120);
+const MAX_REQ = Number(process.env.KPIS_MAX_REQ || 300);
 const MAX_PERIODS = Number(process.env.KPIS_MAX_PERIODS || 3);
+// How many recent weeks to read in full. The KPI page keeps every week ever created, so
+// without a window the reader's request budget is spent on months of old weeks before it
+// reaches the current one. Older weeks are still listed but not descended into.
+const WEEKS_TO_READ = Number(process.env.KPIS_WEEKS_TO_READ || 8);
 let cache = null;
 
 const MONTHS = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
 
 async function notion(path, token, body) {
-  const res = await fetch(`${NOTION_API}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Notion-Version": NOTION_VERSION,
-      "Content-Type": "application/json",
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) throw new Error(`Notion ${res.status} ${path}: ${(await res.text()).slice(0, 160)}`);
-  return res.json();
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const res = await fetch(`${NOTION_API}${path}`, {
+      method: body ? "POST" : "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Notion-Version": NOTION_VERSION,
+        "Content-Type": "application/json",
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    if (res.status === 429 || res.status >= 500) {
+      // Big pages make the reader fire many requests; back off through Notion's rate limit
+      // rather than throwing and losing the whole read (which drops the newest weeks).
+      const wait = Number(res.headers.get("Retry-After")) * 1000 || 500 * (attempt + 1);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    if (!res.ok) throw new Error(`Notion ${res.status} ${path}: ${(await res.text()).slice(0, 160)}`);
+    return res.json();
+  }
+  throw new Error(`Notion rate limit: ${path}`);
 }
 
 const blockText = (b) => {
@@ -122,12 +136,16 @@ async function walk(blockId, ctx, archived, token) {
       const archHere = archived || /NON\s*ACTIVE/i.test(text);
 
       const wk = weekLabel(text);
+      let skipKids = false;
       if (wk) {
         if (!ctx.weeks.has(wk.label)) ctx.weeks.set(wk.label, newWeek(wk.label, wk.sortKey, archived));
         ctx.week = ctx.weeks.get(wk.label);
         if (!ctx.week.blockId) ctx.week.blockId = b.id;
         if (!ctx.week.parentId) ctx.week.parentId = blockId; // the block whose children hold this week
         ctx.creator = null; ctx.section = "NONE";
+        // Read recent weeks in full; don't descend into weeks older than the window, so the
+        // request budget reaches the current week instead of draining on months of history.
+        if (wk.sortKey < ctx.oldCutoff) skipKids = true;
       } else if (ctx.week) {
         const cr = creatorName(text);
         if (cr) {
@@ -162,7 +180,7 @@ async function walk(blockId, ctx, archived, token) {
         }
       }
 
-      if (b.has_children) await walk(b.id, ctx, archHere, token);
+      if (b.has_children && !skipKids) await walk(b.id, ctx, archHere, token);
     }
     cursor = data.has_more ? data.next_cursor : null;
   } while (cursor);
@@ -184,7 +202,8 @@ export default async function handler(req, res) {
       .sort((a, b) => new Date(b.last_edited_time || 0) - new Date(a.last_edited_time || 0))
       .slice(0, MAX_PERIODS);
 
-    const ctx = { weeks: new Map(), req: 0, week: null, creator: null, section: "NONE" };
+    const ctx = { weeks: new Map(), req: 0, week: null, creator: null, section: "NONE",
+      oldCutoff: Date.now() - WEEKS_TO_READ * 7 * 86400000 };
     for (const p of periods) {
       if (ctx.req >= MAX_REQ) break;
       await walk(p.id, ctx, false, token);
