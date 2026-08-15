@@ -74,23 +74,32 @@ export default async function handler(req, res) {
   // second one, so two people loading at once can never create twin weeks.
   const weekTitle = body.weekTitle ? String(body.weekTitle).slice(0, 120) : null;
 
-  if (weekTitle) {
+  // Reuse an existing toggle heading instead of adding a duplicate. This covers both the
+  // week block (weekTitle) and a creator section (sectionTitle): if a heading with the same
+  // text already exists under this parent, hand it back. Without this, a rollover that runs
+  // more than once — or runs while the reader can't yet see the week — stacks duplicate
+  // BRAD / CHRIS / creator sections into the same week.
+  const dedupeTitle = weekTitle || sectionTitle;
+  if (dedupeTitle) {
     try {
-      const kidsRes = await fetch(`${NOTION_API}/blocks/${parentBlockId}/children?page_size=100`, {
-        headers: { Authorization: `Bearer ${token}`, "Notion-Version": NOTION_VERSION },
-      });
-      if (kidsRes.ok) {
+      const norm = (s) => (s || "").toUpperCase().replace(/\s+/g, "");
+      const want = norm(dedupeTitle);
+      let cursor = null;
+      for (let page = 0; page < 5; page++) {
+        const url = `${NOTION_API}/blocks/${parentBlockId}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ""}`;
+        const kidsRes = await fetch(url, { headers: { Authorization: `Bearer ${token}`, "Notion-Version": NOTION_VERSION } });
+        if (!kidsRes.ok) break;
         const kids = await kidsRes.json();
-        const norm = (s) => (s || "").toUpperCase().replace(/\s+/g, "");
-        const want = norm(weekTitle);
         for (const b of kids.results || []) {
           const d = b[b.type];
           const txt = d && d.rich_text ? d.rich_text.map((t) => t.plain_text).join("") : "";
           if (txt && norm(txt) === want) {
-            res.status(200).json({ ok: true, blockId: b.id, existed: true, content: weekTitle });
+            res.status(200).json({ ok: true, blockId: b.id, existed: true, content: dedupeTitle });
             return;
           }
         }
+        if (!kids.has_more) break;
+        cursor = kids.next_cursor;
       }
     } catch (e) { /* fall through and create it */ }
   }
