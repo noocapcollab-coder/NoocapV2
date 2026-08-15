@@ -461,7 +461,7 @@ function openAddClient(){
 }
 async function loadAll(fresh){
   let okAny=false,err=null;
-  try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
+  try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};state.boards=d.boards||[];okAny=true;}catch(e){err=e;}
   try{const k=await getJSON("/api/kpis"+(fresh?"?fresh=1":""));state.weeks=k.weeks||[];if(state.wkIdx>=state.weeks.length)state.wkIdx=0;
     if(!state.weekPicked&&state.weeks.length)state.wkIdx=defaultWeekIdx();okAny=true;}catch(e){err=err||e;}
   if(!okAny){ state.offline=true; showBanner("Can't reach Notion right now — retrying automatically. Anything already loaded stays on screen."); }
@@ -766,8 +766,9 @@ function renderWeekly(){
   // dashboard. The missing column's "+ add video" builds the section in Notion on first use.
   const present=new Set([...w.creators].map(c=>norm(c.name)));
   const pipeHas=new Set(state.pipeline.map(v=>norm(pretty(v.creator))));
+  const roster=new Set([...(state.boards||[]).map(b=>norm(pretty(b.creator))), ...pipeHas]);
   const cols=[...w.creators];
-  if(w.blockId) for(const nm of pipeHas){
+  if(w.blockId) for(const nm of roster){
     if(!present.has(nm)) cols.push({name:nm,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[],planned:0,shipped:0,__missing:true});
   }
   const creators=cols.sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
