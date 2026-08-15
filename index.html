@@ -288,6 +288,24 @@
   .muted{color:var(--muted)} .small{font-size:12px}
   .linkrow{display:flex;gap:8px;margin:8px 0 16px}
   .linkrow input{flex:1;background:var(--surface2);border:0.5px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--muted);font-size:12px}
+  .addclient{margin-left:auto;appearance:none;border:.5px solid var(--line2);background:var(--surface);color:var(--muted);font:inherit;font-size:12px;font-weight:500;padding:6px 12px;border-radius:9px;cursor:pointer;transition:.15s}
+  .addclient:hover{color:var(--accent);border-color:var(--accent);box-shadow:0 0 12px color-mix(in srgb,var(--accent) 26%,transparent)}
+  .acov{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;background:color-mix(in srgb,#000 55%,transparent);backdrop-filter:blur(3px);animation:acf .12s ease}
+  @keyframes acf{from{opacity:0}to{opacity:1}}
+  .acbox{width:100%;max-width:420px;background:var(--surface);border:0.5px solid var(--line2);border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.4)}
+  .ach{font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .acsub{color:var(--muted);font-size:12.5px;margin:5px 0 16px;line-height:1.45}
+  .acl{display:block;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--faint);margin:0 0 5px}
+  .aci{width:100%;background:var(--surface2);border:0.5px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--text);font:inherit;font-size:13px;margin-bottom:13px;transition:.15s}
+  .aci:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+  .acerr{color:var(--danger);font-size:12px;min-height:16px;margin:-4px 0 8px;line-height:1.4}
+  .acrow{display:flex;gap:9px;justify-content:flex-end;margin-top:4px}
+  .acbtn{appearance:none;font:inherit;font-size:13px;font-weight:600;padding:8px 15px;border-radius:9px;cursor:pointer;transition:.15s}
+  .acbtn.ghost{border:.5px solid var(--line2);background:transparent;color:var(--muted)}
+  .acbtn.ghost:hover{color:var(--text);border-color:var(--faint)}
+  .acbtn.go{border:.5px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--text)}
+  .acbtn.go:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
+  .acbtn.go:disabled{opacity:.6;cursor:default}
 </style>
 </head>
 <body>
@@ -327,8 +345,8 @@ const SP={
 const ATTN=new Set(["Review"]);
 const STUCK_DAYS=4;
 const CC={Brad:"#378ADD",Lindsay:"#D85A30",Cindy:"#639922",Chris:"#BA7517",Duncan:"#7F77DD",
- Joshua:"#534AB7",Valeri:"#1D9E75",Emtech:"#E24B4A",Dymtro:"#888780",Jonathan:"#3B6D11",Nuel:"#1D9E75",Neul:"#1D9E75"};
-const ORDER=["Brad","Chris","Lindsay","Emtech","Valeri","Duncan","Dymtro","Jonathan","Joshua","Cindy","Nuel","Neul"];
+ Joshua:"#534AB7",Valeri:"#1D9E75",Emtech:"#E24B4A",Dymtro:"#888780",Jonathan:"#3B6D11",Nuel:"#1D9E75",Neul:"#1D9E75",Nicole:"#C2569B",David:"#2AA7A0"};
+const ORDER=["Brad","Chris","Lindsay","Emtech","Valeri","Duncan","Dymtro","Nicole","David","Joshua","Cindy","Nuel","Neul"];
 const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556","Sponsor"],Edit:["#F1EFE8","#5f5e5a","Edit"]};
 const REFRESH_MS=20000;
 
@@ -407,6 +425,40 @@ async function notionPost(url,body,retries){
   return {ok:false,error:"failed"};
 }
 function writeErr(res){return res&&res.rateLimited?"Notion's briefly rate-limited after a burst of edits — give it a minute, then try again.":"Couldn't reach Notion just now — try again in a moment.";}
+function openAddClient(){
+  if(document.getElementById("acov")) return;
+  const ov=document.createElement("div"); ov.id="acov"; ov.className="acov";
+  ov.innerHTML=`<div class="acbox">
+    <div class="ach">Add a client</div>
+    <div class="acsub">Paste the client's Notion dashboard link — their Short-Form board gets wired in automatically, no redeploy.</div>
+    <label class="acl">Name</label>
+    <input id="acname" class="aci" placeholder="e.g. Nicole" autocomplete="off" spellcheck="false">
+    <label class="acl">Dashboard link</label>
+    <input id="acurl" class="aci" placeholder="https://www.notion.so/…" autocomplete="off" spellcheck="false">
+    <div id="acerr" class="acerr"></div>
+    <div class="acrow"><button id="accancel" class="acbtn ghost">Cancel</button><button id="acgo" class="acbtn go">Add client</button></div>
+  </div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove();
+  ov.addEventListener("click",e=>{if(e.target===ov)close();});
+  document.addEventListener("keydown",function esc(e){if(e.key==="Escape"){close();document.removeEventListener("keydown",esc);}});
+  const nameEl=ov.querySelector("#acname"),urlEl=ov.querySelector("#acurl"),errEl=ov.querySelector("#acerr"),go=ov.querySelector("#acgo");
+  ov.querySelector("#accancel").onclick=close;
+  nameEl.focus();
+  const submit=async()=>{
+    const name=nameEl.value.trim(),url=urlEl.value.trim();
+    errEl.textContent="";
+    if(!name){errEl.textContent="Add a name.";nameEl.focus();return;}
+    if(!url){errEl.textContent="Paste the dashboard link.";urlEl.focus();return;}
+    go.disabled=true;go.textContent="Adding…";
+    const res=await notionPost("/api/add-client",{name,url},1);
+    if(res.ok){ toast(pretty(name)+" added — building their column"); close(); setTimeout(()=>loadAll(true),500); }
+    else { errEl.textContent=res.error||"Couldn't add that client."; go.disabled=false; go.textContent="Add client"; }
+  };
+  go.onclick=submit;
+  urlEl.addEventListener("keydown",e=>{if(e.key==="Enter")submit();});
+  nameEl.addEventListener("keydown",e=>{if(e.key==="Enter")urlEl.focus();});
+}
 async function loadAll(fresh){
   let okAny=false,err=null;
   try{const d=await getJSON("/api/data"+(fresh?"?fresh=1":""));state.pipeline=d.pipeline||[];state.keys=d.creatorKeys||{};okAny=true;}catch(e){err=e;}
@@ -708,16 +760,15 @@ function renderWeekly(){
       html+=`<div class="carrybar" style="opacity:.6"><div class="ct"><span class="cdotp"></span>${lbl} is up to date with ${curLbl}</div></div>`;
     }
   }
-  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span></div><div class="cols">`;
-  // A column for every creator with a REELS board, even on weeks where the plan has no
-  // section for them yet. The missing column's "+ add video" builds the section in Notion
-  // on first use (uses the week's block id), so a creator never has to be added by hand.
-  const BOARD_CREATORS=["BRAD","CHRIS","LINDSAY","EMTECH","DUNCAN","VALERI","DYMTRO","JONATHAN"];
+  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span><button id="addclientbtn" class="addclient">+ Add client</button></div><div class="cols">`;
+  // Every creator with a REELS board (i.e. present in the pipeline) gets a column, even on
+  // weeks where the plan has no section for them yet — including clients added through the
+  // dashboard. The missing column's "+ add video" builds the section in Notion on first use.
   const present=new Set([...w.creators].map(c=>norm(c.name)));
   const pipeHas=new Set(state.pipeline.map(v=>norm(pretty(v.creator))));
   const cols=[...w.creators];
-  if(w.blockId) for(const nm of BOARD_CREATORS){
-    if(!present.has(nm)&&pipeHas.has(nm)) cols.push({name:nm,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[],planned:0,shipped:0,__missing:true});
+  if(w.blockId) for(const nm of pipeHas){
+    if(!present.has(nm)) cols.push({name:nm,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[],planned:0,shipped:0,__missing:true});
   }
   const creators=cols.sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
@@ -790,6 +841,7 @@ function renderWeekly(){
   root.innerHTML=html;
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=()=>runCarryover(); }
+  { const ac=document.getElementById("addclientbtn"); if(ac) ac.onclick=openAddClient; }
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
