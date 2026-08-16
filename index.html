@@ -375,7 +375,7 @@ function liveLookup(){
     const k=norm(v.creator)+"|"+norm(v.title);
     const r=STAGE_RANK[v.status]||0;
     const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id});
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id,format:v.format});
   }
   return m;
 }
@@ -388,7 +388,7 @@ function liveById(){
   for(const v of state.pipeline){
     if(!v.id)continue;
     const k=idn(v.id);const r=STAGE_RANK[v.status]||0;const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",title:v.title});
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",title:v.title,format:v.format});
   }
   return m;
 }
