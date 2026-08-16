@@ -720,14 +720,18 @@ function renderWeekly(){
   const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
   let carriedCount=0;
   if(prevW) for(const c of prevW.creators) for(const it of live(c)) if(!isDone(c.name,it)) carriedCount++;
-  // Long-form throughput across all creators. The FORMAT tag (Long Form / Short Form)
-  // lives on the REELS boards, so it rides along in the pipeline. Running total, not
-  // week-scoped: every long-form video and how many have shipped (reached Ready or Posted).
+  // Long-form edits planned for THIS week, so the card moves with the week dropdown like
+  // every other one. Format comes off the linked video's FORMAT field; an unmarked or
+  // unlinked card reads as Short, which is the same default the card tag uses.
   let lfTotal=0,lfShipped=0;
-  for(const p of state.pipeline){
-    if(p.format!=="Long Form")continue;
-    lfTotal++;
-    if(p.posted||(STAGE_RANK[p.status]||0)>=DONE_RANK)lfShipped++;
+  for(const c of w.creators){
+    for(const it of live(c)){
+      const {lv}=resolveItem(lk,byId,c.name,it);
+      const f=lv?(lv.format||"Short Form"):"Short Form";
+      if(f!=="Long Form")continue;
+      lfTotal++;
+      if(isDone(c.name,it))lfShipped++;
+    }
   }
   const lfP=lfTotal?Math.round(lfShipped/lfTotal*100):0;
   const __nowIdx=currentWeekIdx();
@@ -738,7 +742,7 @@ function renderWeekly(){
     <span class="lab" style="margin-left:auto">Week</span><select id="wksel">${opts}</select></div>
     <div class="band">
       ${kpi("AI videos shipped",`${t.aiShipped} <small>/ ${t.aiPlanned}</small>`,`${aiP}% of planned`,aiP)}
-      ${kpi("Long form edits",`${lfShipped} <small>/ ${lfTotal}</small>`,`${lfP}% shipped · all creators`,lfP)}
+      ${kpi("Long form edits",`${lfShipped} <small>/ ${lfTotal}</small>`,`${lfP}% of planned`,lfP)}
       ${kpi("Weekly completion",`${comp}<small>%</small>`,`${t.shipped} of ${t.planned} planned`,comp)}
       ${kpi("Personal · Sponsor",`${t.personalPlanned} · ${t.sponsorPlanned}`,`${t.personalShipped} · ${t.sponsorShipped} shipped`,null)}
       ${kpi("Carried forward",`${carriedCount}`,prevW?`pending from ${esc(prevW.label)}`:"pending from last week",null)}
