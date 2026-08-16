@@ -821,7 +821,8 @@ function renderWeekly(){
         }
         if(effDay) placed[effDay].push({blockId:it.blockId,vid:vid||"",title:dtitle,color:ccol(c.name),done,stat:(done?stat.replace(/^✓\s*/,""):stat),cls:(done?"ok":(lv?"go":""))});
       }
-      const fmtEl=lv&&lv.format?`<span class="fmt ${lv.format==="Long Form"?"lf":"sf"}">${lv.format==="Long Form"?"Long form":"Short form"}</span>`:"";
+      const fmt=lv?(lv.format||"Short Form"):null;
+      const fmtEl=fmt?`<span class="fmt ${fmt==="Long Form"?"lf":"sf"}">${fmt==="Long Form"?"Long form":"Short form"}</span>`:"";
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
         <div class="t">${esc(dtitle)}${isCarried(it)?`<span class="lastwk">↩ last week</span>`:""}</div>
