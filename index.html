@@ -306,6 +306,9 @@
   .acbtn.go{border:.5px solid color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 20%,transparent);color:var(--text)}
   .acbtn.go:hover{background:color-mix(in srgb,var(--accent) 30%,transparent)}
   .acbtn.go:disabled{opacity:.6;cursor:default}
+  .fmt{font-size:10px;font-weight:600;padding:2px 7px;border-radius:6px;letter-spacing:.02em;border:.5px solid var(--line2);white-space:nowrap}
+  .fmt.lf{color:#E0A34E;background:color-mix(in srgb,#E0A34E 12%,transparent);border-color:color-mix(in srgb,#E0A34E 32%,transparent)}
+  .fmt.sf{color:#4EA9E0;background:color-mix(in srgb,#4EA9E0 12%,transparent);border-color:color-mix(in srgb,#4EA9E0 32%,transparent)}
 </style>
 </head>
 <body>
@@ -818,10 +821,11 @@ function renderWeekly(){
         }
         if(effDay) placed[effDay].push({blockId:it.blockId,vid:vid||"",title:dtitle,color:ccol(c.name),done,stat:(done?stat.replace(/^✓\s*/,""):stat),cls:(done?"ok":(lv?"go":""))});
       }
+      const fmtEl=lv&&lv.format?`<span class="fmt ${lv.format==="Long Form"?"lf":"sf"}">${lv.format==="Long Form"?"Long form":"Short form"}</span>`:"";
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
         ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
         <div class="t">${esc(dtitle)}${isCarried(it)?`<span class="lastwk">↩ last week</span>`:""}</div>
-        <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>
+        <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>${fmtEl}
         ${statusEl}</div>${menu}
         <div class="meta2">${dchip}</div>${daymenu}</div>`;
     }
