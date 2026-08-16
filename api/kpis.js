@@ -22,7 +22,7 @@ const KPIS_DB = process.env.KPIS_DB_ID || "34e508e9-9dda-80df-acf8-d058a7bb0275"
 const NORMAL_CREATORS = (process.env.NORMAL_CREATORS || "JOSHUA,NUEL,NEUL")
   .split(",").map((s) => s.trim().toUpperCase());
 const KNOWN_CREATORS = (process.env.KPI_CREATORS ||
-  "BRAD,CHRIS,LINDSAY,EMTECH,VALERI,DUNCAN,DYMTRO,JONATHAN,JOSHUA,NUEL,NEUL,CINDY")
+  "BRAD,CHRIS,LINDSAY,EMTECH,VALERI,DUNCAN,DYMTRO,NICOLE,DAVID,JOSHUA,NUEL,NEUL,CINDY")
   .split(",").map((s) => s.trim().toUpperCase());
 
 const CACHE_TTL_MS = Number(process.env.KPIS_CACHE_TTL_MS || 20000);
@@ -161,6 +161,11 @@ async function walk(blockId, ctx, archived, token) {
         } else if (/^SPONSOR\b/i.test(text)) {
           ctx.section = "SPONSOR";
           if (ctx.creator && !ctx.creator.anchors.SPONSOR) ctx.creator.anchors.SPONSOR = b.id;
+        } else if (/heading/.test(b.type) && b[b.type] && b[b.type].is_toggleable && text.trim()) {
+          // A toggleable heading under a week that isn't a section is a creator section —
+          // this covers clients added through the dashboard that aren't in the known list.
+          ctx.creator = getCreator(ctx.week, text.trim().toUpperCase(), b.id);
+          ctx.section = "NONE";
         }
       }
 
