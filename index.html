@@ -430,6 +430,11 @@ function carryDone(w,it,lv){
   const t=lv.edited?Date.parse(lv.edited):NaN;
   return isNaN(t)?true:t<w.sortKey;
 }
+// A card that rode across from an earlier week and matches nothing on any board is an orphan
+// — usually the leftover of a roll that ran before the board row got renamed. It can never
+// show a stage and can never tick itself, so it's kept out of the columns and the counts. The
+// block stays in Notion and the × on a matched card still clears blocks for good.
+const carryOrphan=(it,lv)=> isCarried(it)&&!lv;
 
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null,openDay:null};
 
@@ -727,7 +732,7 @@ function renderWeekly(){
     return c.items.filter(it=>{
       if(state.removed.has(it.blockId))return false;
       const {lv,vid}=resolveItem(lk,byId,c.name,it);
-      if(carryDone(wk,it,lv))return false;
+      if(carryDone(wk,it,lv)||carryOrphan(it,lv))return false;
       // Rolls that ran before the dedupe was fixed left the same video on the plan several
       // times over. The rows stay in Notion, but only the first one is shown and counted so
       // the targets read true; the × on the card still clears the leftovers for good.
@@ -998,7 +1003,7 @@ function renderCalendar(){
     return c.items.filter(it=>{
       if(state.removed.has(it.blockId))return false;
       const {lv,vid}=resolveItem(lk,byId,c.name,it);
-      if(carryDone(w,it,lv))return false;
+      if(carryDone(w,it,lv)||carryOrphan(it,lv))return false;
       const key=vid?idn(vid):bareTitle(it.title);
       if(!key)return true;
       if(seen.has(key))return false;
