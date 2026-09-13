@@ -354,7 +354,7 @@ const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556"
 const REFRESH_MS=20000;
 // Shown next to the sync clock. Bump it with every change so a screenshot says outright
 // which build is live, instead of a fix and a stale cache looking identical from outside.
-const BUILD="0913-f";
+const BUILD="0913-g";
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
@@ -459,6 +459,10 @@ function weekBuckets(){
   // checkbox happens to sit on — otherwise next week's work inflates this week's target.
   const lastEnd=weeks.length?Math.max(...weeks.map(x=>x.sortKey))+7*DAY_MS:0;
   const out=weeks.map(w=>({w,creators:new Map()}));
+  // Counters shown in the weekly header. Reasoning about why a card sits where it does from
+  // a screenshot alone has burned several rounds, so the inputs are put on screen instead.
+  const dbg={weeks:weeks.length,lastEnd,dated:0,undated:0,moved:0,held:0};
+  state.bucketDbg=dbg;
   const slot=(wi,name)=>{
     let m=out[wi].creators.get(norm(name));
     if(!m){m={name,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[]};out[wi].creators.set(norm(name),m);}
@@ -477,10 +481,12 @@ function weekBuckets(){
         // A date older than every loaded week leaves the card where it is, since that's
         // history the plan still owns; a date past the newest week is held back entirely.
         let target=wi;
-        if(d!=null){
+        if(d==null) dbg.undated++;
+        else{
+          dbg.dated++;
           const h=homeOf(d);
-          if(h>=0) target=h;
-          else if(d>=lastEnd) continue;
+          if(h>=0){ if(h!==wi)dbg.moved++; target=h; }
+          else if(d>=lastEnd){ dbg.held++; continue; }
         }
         slot(target,c.name).items.push(it);
       }
@@ -888,7 +894,10 @@ function renderWeekly(){
   if(state.syncNote) syncBits.push(esc(state.syncNote));
   const syncTxt=syncBits.length?` <span style="color:var(--accent2)">· ${syncBits.join(" · ")}</span>`:"";
   const syncBtn=sp.count?`<button id="syncbtn" class="addclient" style="margin-right:8px">Sync ${sp.count} from boards</button>`:"";
-  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline${syncTxt}</span>${syncBtn}<button id="addclientbtn" class="addclient">+ Add client</button></div><div class="cols">`;
+  const D=state.bucketDbg||{};
+  const dstr=(ms)=>{const x=new Date(ms);return `${MONTHS_ABBR[x.getMonth()]} ${x.getDate()}`;};
+  const dbgTxt=` <span style="color:var(--faint);font-family:var(--mono);font-size:11px">wk ${D.weeks||0} · cutoff ${D.lastEnd?dstr(D.lastEnd):"—"} · dated ${D.dated||0} · undated ${D.undated||0} · moved ${D.moved||0} · held ${D.held||0}</span>`;
+  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline${syncTxt}${dbgTxt}</span>${syncBtn}<button id="addclientbtn" class="addclient">+ Add client</button></div><div class="cols">`;
   // Every creator with a REELS board (i.e. present in the pipeline) gets a column, even on
   // weeks where the plan has no section for them yet — including clients added through the
   // dashboard. The missing column's "+ add video" builds the section in Notion on first use.
