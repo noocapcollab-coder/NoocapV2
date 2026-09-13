@@ -451,6 +451,10 @@ function weekBuckets(){
   const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
   const weeks=state.weeks;
   const homeOf=(d)=>weeks.findIndex(x=>d>=x.sortKey&&d<x.sortKey+7*DAY_MS);
+  // The end of the newest week on the plan. A video dated past it belongs to a week that
+  // hasn't been created yet, so it's held back rather than parked in whichever week its
+  // checkbox happens to sit on — otherwise next week's work inflates this week's target.
+  const lastEnd=weeks.length?Math.max(...weeks.map(x=>x.sortKey))+7*DAY_MS:0;
   const out=weeks.map(w=>({w,creators:new Map()}));
   const slot=(wi,name)=>{
     let m=out[wi].creators.get(norm(name));
@@ -467,10 +471,15 @@ function weekBuckets(){
         const {vid}=resolveItem(lk,byId,c.name,it);
         const pv=vid?pmap.get(idn(vid)):null;
         const d=pv&&pv.dueDate?dayMs(pv.dueDate):null;
-        // A date outside every loaded week (far future, or older than the window) leaves the
-        // card where it is rather than dropping it off the plan entirely.
-        const target=d==null?wi:homeOf(d);
-        slot(target<0?wi:target,c.name).items.push(it);
+        // A date older than every loaded week leaves the card where it is, since that's
+        // history the plan still owns; a date past the newest week is held back entirely.
+        let target=wi;
+        if(d!=null){
+          const h=homeOf(d);
+          if(h>=0) target=h;
+          else if(d>=lastEnd) continue;
+        }
+        slot(target,c.name).items.push(it);
       }
     }
   });
