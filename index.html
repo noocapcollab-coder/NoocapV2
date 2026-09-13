@@ -359,6 +359,14 @@ const idn=(x)=> (x||"").replace(/-/g,"").toLowerCase();
 const ccol=(n)=> CC[pretty(n)]||"#888780";
 const orderIdx=(n)=>{const i=ORDER.indexOf(pretty(n));return i<0?99:i;};
 const esc=(s)=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// The KPI reader treats anything in brackets on a checkbox line as a note and strips it out
+// of the title, so a video called "… $997/Month (One Person, No Team)" comes back as just
+// "… $997/Month". Any comparison between a plan card and a live board title has to happen on
+// the same stripped form or the two never line up — which is what was quietly re-adding the
+// same video on every roll. stripParens keeps the original casing for writing; bareTitle is
+// the normalised version used purely for matching.
+const stripParens=(t)=>String(t||"").replace(/⤴/g,"").replace(/\([^)]*\)/g," ").replace(/\s{2,}/g," ").trim();
+const bareTitle=(t)=>norm(stripParens(t));
 
 // Live pipeline status used to drive the weekly plan.
 // "Done" for a week = the matching video reached Approval (sent to brand), To-Post,
@@ -372,14 +380,20 @@ function liveLookup(){
   const m=new Map();
   for(const v of state.pipeline){
     if(!v.creator||!v.title)continue;
-    const k=norm(v.creator)+"|"+norm(v.title);
     const r=STAGE_RANK[v.status]||0;
-    const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id,format:v.format,edited:v.lastEdited});
+    const rec={rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id,format:v.format,edited:v.lastEdited};
+    // Index under the full title and, when they differ, the bracket-stripped one, so a card
+    // whose brackets the reader pulled into its note still finds its video.
+    const keys=[norm(v.title)];const bare=bareTitle(v.title);
+    if(bare&&bare!==keys[0])keys.push(bare);
+    for(const t of keys){
+      const k=norm(v.creator)+"|"+t;const cur=m.get(k);
+      if(!cur||r>cur.rank) m.set(k,rec);
+    }
   }
   return m;
 }
-const liveOf=(lk,creator,title)=>lk.get(norm(creator)+"|"+norm(title))||null;
+const liveOf=(lk,creator,title)=>lk.get(norm(creator)+"|"+norm(title))||lk.get(norm(creator)+"|"+bareTitle(title))||null;
 // Match a weekly card to the live pipeline by the video's Notion id (set when the
 // card was added from the picker). This is what lets a rename in Notion flow through:
 // the id never changes, so we always read the video's current title and stage.
@@ -708,11 +722,21 @@ function renderWeekly(){
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup();const byId=liveById();
-  const live=(wk,c)=>c.items.filter(it=>{
-    if(state.removed.has(it.blockId))return false;
-    const {lv}=resolveItem(lk,byId,c.name,it);
-    return !carryDone(wk,it,lv);
-  });
+  const live=(wk,c)=>{
+    const seen=new Set();
+    return c.items.filter(it=>{
+      if(state.removed.has(it.blockId))return false;
+      const {lv,vid}=resolveItem(lk,byId,c.name,it);
+      if(carryDone(wk,it,lv))return false;
+      // Rolls that ran before the dedupe was fixed left the same video on the plan several
+      // times over. The rows stay in Notion, but only the first one is shown and counted so
+      // the targets read true; the × on the card still clears the leftovers for good.
+      const key=vid?idn(vid):bareTitle(it.title);
+      if(!key)return true;
+      if(seen.has(key))return false;
+      seen.add(key);return true;
+    });
+  };
   // per-day scheduling (shared with the Calendar tab via the same local store)
   const days=calDays(w);const dayIso=new Set(days.map(d=>d.iso));const todayIso=isoDay(new Date());
   const ov=calOverrides();const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
@@ -969,11 +993,18 @@ function renderCalendar(){
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The calendar fills in as soon as it reconnects.":"No weekly plan found yet."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup(),byId=liveById();
-  const live=(c)=>c.items.filter(it=>{
-    if(state.removed.has(it.blockId))return false;
-    const {lv}=resolveItem(lk,byId,c.name,it);
-    return !carryDone(w,it,lv);
-  });
+  const live=(c)=>{
+    const seen=new Set();
+    return c.items.filter(it=>{
+      if(state.removed.has(it.blockId))return false;
+      const {lv,vid}=resolveItem(lk,byId,c.name,it);
+      if(carryDone(w,it,lv))return false;
+      const key=vid?idn(vid):bareTitle(it.title);
+      if(!key)return true;
+      if(seen.has(key))return false;
+      seen.add(key);return true;
+    });
+  };
   const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
   const days=calDays(w);
   const dayIso=new Set(days.map(d=>d.iso));
@@ -1262,7 +1293,15 @@ function buildCarryPlan(){
     // Include creators even when they have no section in next week yet — the rollover builds
     // the section on the fly. This is what lets a re-run finish anyone a rate-limited earlier
     // pass left out, instead of skipping them forever.
-    const existing=nc?new Set((nc.items||[]).map(it=>norm((it.title||"").replace(/⤴/g,"").trim()))):new Set();
+    // What's already in the destination, by linked video id first and stripped title second.
+    // Matching on the id is what actually holds, since a title can come back from the reader
+    // with its brackets pulled off into the note.
+    const existing=new Set(),existingIds=new Set();
+    if(nc)for(const it of (nc.items||[])){
+      const t=bareTitle(it.title); if(t)existing.add(t);
+      if(it.videoId)existingIds.add(idn(it.videoId));
+      const r=byId.get(idn(it.videoId||""));if(r&&r.title)existing.add(bareTitle(r.title));
+    }
     const groups={Personal:[],Sponsor:[]};
     for(const it of c.items){
       if(state.removed.has(it.blockId))continue;
@@ -1271,11 +1310,23 @@ function buildCarryPlan(){
       // changes, with the brand, ready and posted all stay put and only work still waiting on
       // an idea, a script or a shoot moves across.
       const stays=it.checked||(lv&&lv.rank>=EDIT_RANK); if(stays)continue;
-      const title=(dt||it.title||"").replace(/⤴/g,"").trim();
+      // A card that already rode across once and still can't be matched to a video on any
+      // board will never resolve, so rolling it again just walks it forward forever. It stays
+      // where it is and someone can clear it by hand.
+      if(isCarried(it)&&!lv)continue;
+      // Write the stripped title so the reader doesn't keep peeling the same brackets back
+      // into the note and growing it on every pass.
+      const title=stripParens(dt||it.title);
       if(!title||/^\d+$/.test(title))continue;
-      if(existing.has(norm(title)))continue;
+      const key=vid?idn(vid):null;
+      if(key&&existingIds.has(key))continue;
+      if(existing.has(bareTitle(title)))continue;
+      // Guard the plan against itself as well — the same video listed twice in the week that's
+      // ending would otherwise arrive twice in the new one.
+      if(key)existingIds.add(key);
+      existing.add(bareTitle(title));
       const pv=vid?pmap.get(idn(vid)):null;
-      (it.type==="Sponsor"?groups.Sponsor:groups.Personal).push({title,note:cleanNote(it.note),videoUrl:pv?pv.url:null,videoId:vid||null});
+      (it.type==="Sponsor"?groups.Sponsor:groups.Personal).push({title,note:vid?"":cleanNote(it.note),videoUrl:pv?pv.url:null,videoId:vid||null});
       count++;
     }
     if(groups.Personal.length||groups.Sponsor.length) plan.push({creator:c.name,blockId:nc?nc.blockId:null,anchors:nc?nc.anchors:{PERSONAL:null,SPONSOR:null,NONE:null},groups});
@@ -1418,8 +1469,8 @@ function buildSyncPlan(){
     const {title,vid}=resolveItem(lk,byId,c.name,it);
     if(vid)haveId.add(idn(vid));
     const k=norm(c.name)+"|";
-    if(it.title)haveTitle.add(k+norm(String(it.title).replace(/⤴/g,"")));
-    if(title)haveTitle.add(k+norm(String(title).replace(/⤴/g,"")));
+    if(it.title)haveTitle.add(k+bareTitle(it.title));
+    if(title)haveTitle.add(k+bareTitle(title));
   }
   const skip=syncSkip();
   const tried=window.__syncTried||(window.__syncTried=new Map());
@@ -1430,7 +1481,7 @@ function buildSyncPlan(){
     const id=idn(v.id);
     if(skip.has(id)||haveId.has(id)||(tried.get(id)||0)>=3)continue;
     const cname=pretty(v.creator);
-    if(haveTitle.has(norm(cname)+"|"+norm(v.title)))continue;
+    if(haveTitle.has(norm(cname)+"|"+bareTitle(v.title)))continue;
     const d=dayMs(v.dueDate);if(d==null)continue;
     // The plan runs Mon–Sat but the window is a full seven days, so a video dated on a
     // Sunday joins the week that just ran instead of falling through the gap between weeks.
