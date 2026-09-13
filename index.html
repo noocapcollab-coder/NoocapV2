@@ -354,7 +354,7 @@ const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556"
 const REFRESH_MS=20000;
 // Shown next to the sync clock. Bump it with every change so a screenshot says outright
 // which build is live, instead of a fix and a stale cache looking identical from outside.
-const BUILD="0913-i";
+const BUILD="0913-j";
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
@@ -428,11 +428,11 @@ const EDIT_RANK=STAGE_RANK.Editing;
 // the week before, so the card stays in Notion but drops out of the column and every count
 // here. Judging it on last-edited rather than stage alone is what lets a card that rolled in
 // early and genuinely goes into edit this week stay put instead of vanishing mid-week.
-// Only applies to cards with no post date of their own. Once a video carries a date, that
-// date decides its week outright and the card is shown there whatever its stage — a video
-// finished early and scheduled for Friday still belongs to the week it goes out in.
-function carryDone(w,it,lv,dated){
-  if(dated)return false;
+// Hides a carried card whose work already happened in an earlier week. The exemption is a
+// post date INSIDE this week: GAMMA can be finished and still belong here because it goes out
+// on Friday, while last week's posted videos that rode across on a roll do not.
+function carryDone(w,it,lv,inWeek){
+  if(inWeek)return false;
   if(!isCarried(it)||!lv||lv.rank<EDIT_RANK)return false;
   const t=lv.edited?Date.parse(lv.edited):NaN;
   return isNaN(t)?true:t<w.sortKey;
@@ -790,13 +790,17 @@ function renderWeekly(){
   // Cards are grouped by the week their video is dated for, not the week their checkbox sits in.
   const buckets=weekBuckets();const wCreators=bucketFor(buckets,w);
   const pipeById=new Map();for(const v of state.pipeline){if(v.id)pipeById.set(idn(v.id),v);}
-  const datedOf=(vid)=>{const p=vid?pipeById.get(idn(vid)):null;return !!(p&&p.dueDate&&dayMs(p.dueDate)!=null);};
+  const inWeekOf=(wk,vid)=>{
+    const p=vid?pipeById.get(idn(vid)):null;
+    const d=p&&p.dueDate?dayMs(p.dueDate):null;
+    return d!=null&&d>=wk.sortKey&&d<wk.sortKey+7*DAY_MS;
+  };
   const live=(wk,c)=>{
     const seen=new Set();
     return c.items.filter(it=>{
       if(state.removed.has(it.blockId))return false;
       const {lv,vid}=resolveItem(lk,byId,c.name,it);
-      if(carryDone(wk,it,lv,datedOf(vid))||carryOrphan(it,lv))return false;
+      if(carryDone(wk,it,lv,inWeekOf(wk,vid))||carryOrphan(it,lv))return false;
       // Rolls that ran before the dedupe was fixed left the same video on the plan several
       // times over. The rows stay in Notion, but only the first one is shown and counted so
       // the targets read true; the × on the card still clears the leftovers for good.
@@ -1080,7 +1084,9 @@ function renderCalendar(){
       if(state.removed.has(it.blockId))return false;
       const {lv,vid}=resolveItem(lk,byId,c.name,it);
       const pvv=vid?pmap.get(idn(vid)):null;
-      if(carryDone(w,it,lv,!!(pvv&&pvv.dueDate))||carryOrphan(it,lv))return false;
+      const dd=pvv&&pvv.dueDate?dayMs(pvv.dueDate):null;
+      const inWk=dd!=null&&dd>=w.sortKey&&dd<w.sortKey+7*DAY_MS;
+      if(carryDone(w,it,lv,inWk)||carryOrphan(it,lv))return false;
       const key=vid?idn(vid):bareTitle(it.title);
       if(!key)return true;
       if(seen.has(key))return false;
