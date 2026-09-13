@@ -352,6 +352,9 @@ const CC={Brad:"#378ADD",Lindsay:"#D85A30",Cindy:"#639922",Chris:"#BA7517",Dunca
 const ORDER=["Brad","Chris","Lindsay","Emtech","Valeri","Duncan","Dymtro","Nicole","David","Joshua","Cindy","Nuel","Neul"];
 const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556","Sponsor"],Edit:["#F1EFE8","#5f5e5a","Edit"]};
 const REFRESH_MS=20000;
+// Shown next to the sync clock. Bump it with every change so a screenshot says outright
+// which build is live, instead of a fix and a stale cache looking identical from outside.
+const BUILD="0913-f";
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
@@ -568,7 +571,7 @@ function setSync(){
   if(!state.lastOk){dot.className="dot";t.textContent="connecting…";return;}
   const ago=Math.round((Date.now()-state.lastOk)/1000);
   dot.className="dot"+(ago>REFRESH_MS/1000+8?" stale":"");
-  t.textContent=ago<5?"live · just now":("synced "+ago+"s ago");
+  t.textContent=(ago<5?"live · just now":("synced "+ago+"s ago"))+" · b"+BUILD;
 }
 setInterval(setSync,1000);
 
