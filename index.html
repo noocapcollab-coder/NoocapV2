@@ -375,7 +375,7 @@ function liveLookup(){
     const k=norm(v.creator)+"|"+norm(v.title);
     const r=STAGE_RANK[v.status]||0;
     const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id,format:v.format});
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",id:v.id,format:v.format,edited:v.lastEdited});
   }
   return m;
 }
@@ -388,7 +388,7 @@ function liveById(){
   for(const v of state.pipeline){
     if(!v.id)continue;
     const k=idn(v.id);const r=STAGE_RANK[v.status]||0;const cur=m.get(k);
-    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",title:v.title,format:v.format});
+    if(!cur||r>cur.rank) m.set(k,{rank:r,status:v.status,posted:!!v.posted||v.status==="Posted",title:v.title,format:v.format,edited:v.lastEdited});
   }
   return m;
 }
@@ -402,6 +402,20 @@ function resolveItem(lk,byId,cName,it){
 }
 const isCarried=(it)=> !!(it && it.note && it.note.includes("⤴"));
 const cleanNote=(note)=> (note||"").replace(/⤴/g,"").replace(/\s{2,}/g," ").trim();
+// The week a video belongs to is the week it reaches an editor. Once it's in edit — or in
+// changes, with the brand, ready or posted — that week owns it, so it never rolls forward
+// and the earlier week keeps the credit.
+const EDIT_RANK=STAGE_RANK.Editing;
+// A carried card only earns its place in the new week while the work is still ahead of it.
+// If the video was already past the editor before that week even started, the work happened
+// the week before, so the card stays in Notion but drops out of the column and every count
+// here. Judging it on last-edited rather than stage alone is what lets a card that rolled in
+// early and genuinely goes into edit this week stay put instead of vanishing mid-week.
+function carryDone(w,it,lv){
+  if(!isCarried(it)||!lv||lv.rank<EDIT_RANK)return false;
+  const t=lv.edited?Date.parse(lv.edited):NaN;
+  return isNaN(t)?true:t<w.sortKey;
+}
 
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null,openDay:null};
 
@@ -694,7 +708,11 @@ function renderWeekly(){
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup();const byId=liveById();
-  const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
+  const live=(wk,c)=>c.items.filter(it=>{
+    if(state.removed.has(it.blockId))return false;
+    const {lv}=resolveItem(lk,byId,c.name,it);
+    return !carryDone(wk,it,lv);
+  });
   // per-day scheduling (shared with the Calendar tab via the same local store)
   const days=calDays(w);const dayIso=new Set(days.map(d=>d.iso));const todayIso=isoDay(new Date());
   const ov=calOverrides();const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
@@ -706,7 +724,7 @@ function renderWeekly(){
   const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalPlanned:0,sponsorPlanned:0,personalShipped:0,sponsorShipped:0};
   for(const c of w.creators){
     const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
-    for(const it of live(c)){
+    for(const it of live(w,c)){
       t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
       if(!normal){ if((it.type||"")==="Sponsor")t.sponsorPlanned++; else t.personalPlanned++; }
       if(isDone(c.name,it)){ t.shipped++; if(normal)t.normalShipped++;else t.aiShipped++;
@@ -716,18 +734,21 @@ function renderWeekly(){
   const comp=t.planned?Math.round(t.shipped/t.planned*100):0;
   const aiP=t.aiPlanned?Math.round(t.aiShipped/t.aiPlanned*100):0;
   const neP=t.normalPlanned?Math.round(t.normalShipped/t.normalPlanned*100):0;
-  // Carried forward = videos from LAST week's plan that still aren't done
-  // (not Ready / To-Post / Posted). Purely informational, counts nothing from
-  // this week and changes no other number.
+  // Carried forward = videos from LAST week's plan that haven't reached an editor yet, which
+  // is exactly the set the roll-up will move across, so the number here and the number on the
+  // roll button always agree. Purely informational and it changes no other count.
   const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
   let carriedCount=0;
-  if(prevW) for(const c of prevW.creators) for(const it of live(c)) if(!isDone(c.name,it)) carriedCount++;
+  if(prevW) for(const c of prevW.creators) for(const it of live(prevW,c)){
+    const {lv}=resolveItem(lk,byId,c.name,it);
+    if(!it.checked&&!(lv&&lv.rank>=EDIT_RANK)) carriedCount++;
+  }
   // Long-form edits planned for THIS week, so the card moves with the week dropdown like
   // every other one. Format comes off the linked video's FORMAT field; an unmarked or
   // unlinked card reads as Short, which is the same default the card tag uses.
   let lfTotal=0,lfShipped=0;
   for(const c of w.creators){
-    for(const it of live(c)){
+    for(const it of live(w,c)){
       const {lv}=resolveItem(lk,byId,c.name,it);
       const f=lv?(lv.format||"Short Form"):"Short Form";
       if(f!=="Long Form")continue;
@@ -785,7 +806,7 @@ function renderWeekly(){
   const creators=cols.sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     const isNormal=["JOSHUA","NUEL","NEUL"].includes(c.name);
-    const items=live(c);
+    const items=live(w,c);
     const cShipped=items.reduce((n,it)=>n+(isDone(c.name,it)?1:0),0);
     html+=`<div class="col"><div class="accent" style="background:${ccol(c.name)}"></div>
       <div class="colhead plain"><span class="cdot" style="background:${ccol(c.name)}"></span>
@@ -948,7 +969,11 @@ function renderCalendar(){
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The calendar fills in as soon as it reconnects.":"No weekly plan found yet."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup(),byId=liveById();
-  const live=(c)=>c.items.filter(it=>!state.removed.has(it.blockId));
+  const live=(c)=>c.items.filter(it=>{
+    if(state.removed.has(it.blockId))return false;
+    const {lv}=resolveItem(lk,byId,c.name,it);
+    return !carryDone(w,it,lv);
+  });
   const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
   const days=calDays(w);
   const dayIso=new Set(days.map(d=>d.iso));
@@ -1156,8 +1181,8 @@ async function removeCard(blockId,title,videoId){
 
 // Automatic weekly carry-over.
 // Weeks roll Mon–Sat; the rollover fires from the Sunday before the next week
-// starts. When it does, every still-in-production video from the week that's
-// ending (matched in the pipeline, not yet Ready/To-Post/Posted) is copied into
+// starts. When it does, every video from the week that's ending which hasn't
+// reached an editor yet is copied into
 // the upcoming week. Idempotent: dedupes by title and a localStorage flag keeps
 // it to once per flip per browser. Personal/Sponsor headings are created in the
 // upcoming week so the type grouping survives a reload.
@@ -1221,9 +1246,10 @@ function weekRefs(){
   const rolloverActive=!!(cur&&next&&curOver);
   return {cur,next,rolloverActive,needsCreate};
 }
-// Work out which still-in-production videos from the current week should roll forward.
-// Skips finished ones (Ready/sent/posted), blanks and placeholders, and — when the next
-// week already exists — anything already there (dedupe by title) so it never double-adds.
+// Work out which videos from the current week should roll forward. Only ones that haven't
+// reached an editor qualify, so anything in edit or past it stays where it is; blanks and
+// placeholders are dropped, and when the next week already exists anything already there is
+// skipped by title so it never double-adds.
 function buildCarryPlan(){
   const {cur,next,rolloverActive,needsCreate}=weekRefs();
   if(!cur||!next) return {cur,next,rolloverActive,needsCreate:false,count:0,plan:[]};
@@ -1241,7 +1267,10 @@ function buildCarryPlan(){
     for(const it of c.items){
       if(state.removed.has(it.blockId))continue;
       const {title:dt,lv,vid}=resolveItem(lk,byId,c.name,it);
-      const done=it.checked||(lv&&lv.rank>=DONE_RANK); if(done)continue;
+      // Anything that's reached an editor belongs to the week it got there, so in edit, in
+      // changes, with the brand, ready and posted all stay put and only work still waiting on
+      // an idea, a script or a shoot moves across.
+      const stays=it.checked||(lv&&lv.rank>=EDIT_RANK); if(stays)continue;
       const title=(dt||it.title||"").replace(/⤴/g,"").trim();
       if(!title||/^\d+$/.test(title))continue;
       if(existing.has(norm(title)))continue;
