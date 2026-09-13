@@ -471,7 +471,9 @@ async function loadAll(fresh){
   else{ state.offline=false; hideBanner(); state.lastOk=Date.now(); }
   render(); setSync();
   migrateLocalDays();
-  maybeAutoRoll();
+  // The rollover goes first and claims the write lock if it's going to run, so the sync
+  // waits its turn rather than writing into a week that's still being built.
+  maybeAutoRoll().then(maybeAutoSync);
 }
 function setSync(){
   const dot=document.getElementById("dot"),t=document.getElementById("synctxt");
@@ -828,7 +830,7 @@ function renderWeekly(){
       const fmt=lv?(lv.format||"Short Form"):null;
       const fmtEl=fmt?`<span class="fmt ${fmt==="Long Form"?"lf":"sf"}">${fmt==="Long Form"?"Long form":"Short form"}</span>`:"";
       html+=`<div class="card ${done?"done":""}" style="--ac:${tag[1]};cursor:default">
-        ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" title="Remove from week">×</button>`:""}
+        ${it.blockId?`<button class="del" data-block="${esc(it.blockId)}" data-title="${esc(dtitle)}" data-video="${esc(vid||"")}" title="Remove from week">×</button>`:""}
         <div class="t">${esc(dtitle)}${isCarried(it)?`<span class="lastwk">↩ last week</span>`:""}</div>
         <div class="meta"><span class="pill" style="background:${tag[0]};color:${tag[1]}">${tag[2]}</span>${fmtEl}
         ${statusEl}</div>${menu}
@@ -855,7 +857,7 @@ function renderWeekly(){
   { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=()=>runCarryover(); }
   { const ac=document.getElementById("addclientbtn"); if(ac) ac.onclick=openAddClient; }
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
-  root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title);});
+  root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title,b.dataset.video);});
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
   root.querySelectorAll(".smi").forEach(b=>b.onclick=(e)=>{e.stopPropagation();setWeeklyStatus(b.dataset.video,b.dataset.stage,b.dataset.block);});
   root.querySelectorAll(".dchip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openDay=state.openDay===b.dataset.block?null:b.dataset.block;state.openStatus=null;renderWeekly();});
@@ -1141,11 +1143,14 @@ async function submitPicks(creator,isNormal){
 // Remove one planned video from the week. Archives its checkbox in Notion, then
 // tombstones the block id locally so it stays gone even while the kpis cache (up
 // to ~20s) still returns it.
-async function removeCard(blockId,title){
+// Taking a card off by hand is also a decision the auto-sync has to respect, so the
+// video's id goes on a local skip list — otherwise the next poll would see it sitting
+// on the board with a post date for this week and put it straight back.
+async function removeCard(blockId,title,videoId){
   if(!blockId)return;
   if(!confirm(`Remove “${title||"this video"}” from the week?`))return;
   const res=await notionPost("/api/remove-video",{blockId});
-  if(res.ok){ state.removed.add(blockId); toast("Removed"); renderWeekly(); }
+  if(res.ok){ state.removed.add(blockId); if(videoId)addSyncSkip(videoId); toast("Removed"); renderWeekly(); }
   else toast(writeErr(res));
 }
 
@@ -1342,6 +1347,122 @@ async function maybeAutoRoll(){
   if(!cp.needsCreate&&!cp.count)return;             // someone else already handled it
   runCarryover({auto:true});
 }
+// ---- Automatic weekly sync ------------------------------------------------------
+// New videos land on a creator's REELS board all week long, and until now somebody had to
+// reopen the weekly plan and pull each one across by hand. This watches the pipeline on
+// every poll and copies any video whose POST DATE falls inside a week straight into that
+// week's plan, writing the same linked checkbox the "+" picker writes, so the KPI band,
+// the day grid and the automatic tick all behave exactly as they would for a manual pick.
+//
+// Placement comes purely from the post date — Mon–Sat of whichever week the date lands in.
+// A video with no post date stays out, because nothing on the row says which week it
+// belongs to, and setting a day on it (which writes POST DATE back to Notion) is what
+// brings it in on the following poll.
+//
+// The guards matter more than the copying. A video already sitting in any loaded week is
+// never added again, so carried-forward items and manual picks can't double up. One taken
+// off by hand goes on a local skip list and stays off. Only the current week and the ones
+// after it are ever written to, so history can't be rewritten underneath you. A run is
+// capped, and a video whose write keeps failing is dropped after a few tries rather than
+// being hammered at every twenty seconds.
+const SYNC_MAX_PER_RUN=20;
+const SYNC_SKIP_KEY="noocap_sync_skip";
+function syncSkip(){try{return new Set(JSON.parse(localStorage.getItem(SYNC_SKIP_KEY)||"[]"));}catch(e){return new Set();}}
+function addSyncSkip(vid){if(!vid)return;const s=syncSkip();s.add(idn(vid));try{localStorage.setItem(SYNC_SKIP_KEY,JSON.stringify([...s].slice(-400)));}catch(e){}}
+// Local calendar day from an ISO date, built out of the Y/M/D parts so a "2026-09-14" post
+// date reads as Sep 14 here instead of sliding a day when it's parsed as UTC.
+function dayMs(iso){const m=String(iso||"").slice(0,10).match(/^(\d{4})-(\d{2})-(\d{2})$/);return m?new Date(+m[1],+m[2]-1,+m[3]).getTime():null;}
+const namedTitle=(t)=>!!(t&&t.trim()&&t.trim().toLowerCase()!=="untitled");
+
+// Work out which board videos aren't on the plan yet and where each one belongs.
+function buildSyncPlan(){
+  const empty={count:0,plan:[],labels:[]};
+  if(!state.weeks.length||!state.pipeline.length)return empty;
+  const ci=currentWeekIdx();const cur=state.weeks[ci];if(!cur)return empty;
+  const weeks=state.weeks.filter(w=>w.blockId&&w.sortKey>=cur.sortKey).sort((a,b)=>a.sortKey-b.sortKey);
+  if(!weeks.length)return empty;
+  // Everything already planned anywhere, by linked id and by title, so a video that's in
+  // last week's list or rode across in the carry-over is left alone rather than cloned.
+  const lk=liveLookup(),byId=liveById();
+  const haveId=new Set(),haveTitle=new Set();
+  for(const w of state.weeks)for(const c of w.creators)for(const it of c.items){
+    const {title,vid}=resolveItem(lk,byId,c.name,it);
+    if(vid)haveId.add(idn(vid));
+    const k=norm(c.name)+"|";
+    if(it.title)haveTitle.add(k+norm(String(it.title).replace(/⤴/g,"")));
+    if(title)haveTitle.add(k+norm(String(title).replace(/⤴/g,"")));
+  }
+  const skip=syncSkip();
+  const tried=window.__syncTried||(window.__syncTried=new Map());
+  const groups=new Map();let count=0;
+  for(const v of state.pipeline){
+    if(count>=SYNC_MAX_PER_RUN)break;
+    if(!v.id||!v.creator||!namedTitle(v.title))continue;
+    const id=idn(v.id);
+    if(skip.has(id)||haveId.has(id)||(tried.get(id)||0)>=3)continue;
+    const cname=pretty(v.creator);
+    if(haveTitle.has(norm(cname)+"|"+norm(v.title)))continue;
+    const d=dayMs(v.dueDate);if(d==null)continue;
+    // The plan runs Mon–Sat but the window is a full seven days, so a video dated on a
+    // Sunday joins the week that just ran instead of falling through the gap between weeks.
+    const w=weeks.find(x=>d>=x.sortKey&&d<x.sortKey+7*DAY_MS);
+    if(!w)continue;
+    let g=groups.get(w.sortKey);
+    if(!g){g={week:w,creators:new Map()};groups.set(w.sortKey,g);}
+    let c=g.creators.get(norm(cname));
+    if(!c){
+      const ex=w.creators.find(x=>norm(x.name)===norm(cname));
+      c={name:cname,blockId:ex?ex.blockId:null,anchors:ex?{...ex.anchors}:{PERSONAL:null,SPONSOR:null,NONE:null},items:[]};
+      g.creators.set(norm(cname),c);
+    }
+    c.items.push({title:v.title,type:v.type==="Sponsor"?"Sponsor":"Personal",videoId:v.id,videoUrl:v.url||""});
+    count++;
+  }
+  const plan=[...groups.values()].map(g=>({week:g.week,creators:[...g.creators.values()]}));
+  return {count,plan,labels:plan.map(g=>g.week.label)};
+}
+
+// Write the plan. Missing creator sections and Personal/Sponsor headings get built on the
+// way through, the same way the picker and the carry-over build them.
+async function runAutoSync(){
+  if(window.__syncing||window.__carrying||state.offline)return;
+  const {count,plan,labels}=buildSyncPlan();
+  if(!count)return;
+  window.__syncing=true;
+  const tried=window.__syncTried||(window.__syncTried=new Map());
+  let added=0;
+  try{
+    for(const g of plan){
+      for(const c of g.creators){
+        let blockId=c.blockId,anchors=c.anchors;
+        if(!blockId){
+          const head=await addBlock({parentBlockId:g.week.blockId,sectionTitle:pretty(c.name).toUpperCase()});
+          if(!head||!head.blockId){for(const it of c.items){const k=idn(it.videoId);tried.set(k,(tried.get(k)||0)+1);}continue;}
+          blockId=head.blockId;anchors={PERSONAL:null,SPONSOR:null,NONE:null};await csleep(360);
+        }
+        for(const type of ["Personal","Sponsor"]){
+          const items=c.items.filter(it=>it.type===type);if(!items.length)continue;
+          const sec=type.toUpperCase();
+          let after=anchors[sec]||anchors.NONE||null;
+          if(!after){const h=await addBlock({parentBlockId:blockId,heading:sec});if(h&&h.blockId){after=h.blockId;anchors[sec]=h.blockId;}await csleep(360);}
+          for(const it of items){
+            const k=idn(it.videoId);tried.set(k,(tried.get(k)||0)+1);
+            const r=await addBlock({parentBlockId:blockId,afterBlockId:after||undefined,title:it.title,note:"",videoUrl:it.videoUrl||"",videoId:it.videoId||"",checked:false});
+            if(r&&r.blockId){after=r.blockId;anchors[sec]=r.blockId;added++;}
+            await csleep(300);
+          }
+        }
+      }
+    }
+    if(added){
+      toast(`${added} new video${added===1?"":"s"} synced into ${labels.join(" · ")}`);
+      await loadAll(true);
+    }
+  }catch(e){ /* a failed pass just leaves the videos for the next poll */ }
+  finally{ window.__syncing=false; }
+}
+function maybeAutoSync(){ runAutoSync(); }
+
 function showScrim(){document.getElementById("scrim").classList.add("show");}
 
 function closeOverlays(){document.getElementById("scrim").classList.remove("show");
