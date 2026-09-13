@@ -354,7 +354,7 @@ const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556"
 const REFRESH_MS=20000;
 // Shown next to the sync clock. Bump it with every change so a screenshot says outright
 // which build is live, instead of a fix and a stale cache looking identical from outside.
-const BUILD="0913-h";
+const BUILD="0913-i";
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
@@ -480,15 +480,12 @@ function weekBuckets(){
         const d=pv&&pv.dueDate?dayMs(pv.dueDate):null;
         // A date older than every loaded week leaves the card where it is, since that's
         // history the plan still owns; a date past the newest week is held back entirely.
-        let target=wi;
-        if(d==null) dbg.undated++;
-        else{
-          dbg.dated++;
-          const h=homeOf(d);
-          if(h>=0){ if(h!==wi)dbg.moved++; target=h; }
-          else if(d>=lastEnd){ dbg.held++; continue; }
-        }
-        slot(target,c.name).items.push(it);
+        // A card belongs to the week its checkbox sits in, full stop. Letting the post date
+        // move cards between weeks meant the screen never matched Notion — things appeared in
+        // weeks nobody put them in and vanished from weeks they were added to. The post date
+        // still decides which week auto-sync WRITES into, and still drives the day chips.
+        if(d==null) dbg.undated++; else dbg.dated++;
+        slot(wi,c.name).items.push(it);
       }
     }
   });
@@ -1582,13 +1579,19 @@ function buildSyncPlan(){
   // Everything already planned anywhere, by linked id and by title, so a video that's in
   // last week's list or rode across in the carry-over is left alone rather than cloned.
   const lk=liveLookup(),byId=liveById();
-  const haveId=new Set(),haveTitle=new Set();
-  for(const w of state.weeks)for(const c of w.creators)for(const it of c.items){
-    const {title,vid}=resolveItem(lk,byId,c.name,it);
-    if(vid)haveId.add(idn(vid));
-    const k=norm(c.name)+"|";
-    if(it.title)haveTitle.add(k+bareTitle(it.title));
-    if(title)haveTitle.add(k+bareTitle(title));
+  // Per week, not across all of them. A video planned in an earlier week that's dated into a
+  // later one still needs planning there; only a duplicate inside the SAME week is skipped.
+  const haveByWeek=new Map();
+  for(const w of state.weeks){
+    const ids=new Set(),titles=new Set();
+    for(const c of w.creators)for(const it of c.items){
+      const {title,vid}=resolveItem(lk,byId,c.name,it);
+      if(vid)ids.add(idn(vid));
+      const k=norm(c.name)+"|";
+      if(it.title)titles.add(k+bareTitle(it.title));
+      if(title)titles.add(k+bareTitle(title));
+    }
+    haveByWeek.set(w.sortKey,{ids,titles});
   }
   const skip=syncSkip();
   const tried=window.__syncTried||(window.__syncTried=new Map());
@@ -1597,14 +1600,17 @@ function buildSyncPlan(){
     if(count>=SYNC_MAX_PER_RUN)break;
     if(!v.id||!v.creator||!namedTitle(v.title))continue;
     const id=idn(v.id);
-    if(skip.has(id)||haveId.has(id)||(tried.get(id)||0)>=SYNC_MAX_TRIES)continue;
+    if(skip.has(id)||(tried.get(id)||0)>=SYNC_MAX_TRIES)continue;
     const cname=pretty(v.creator);
-    if(haveTitle.has(norm(cname)+"|"+bareTitle(v.title)))continue;
     const d=dayMs(v.dueDate);if(d==null)continue;
     // The plan runs Mon–Sat but the window is a full seven days, so a video dated on a
     // Sunday joins the week that just ran instead of falling through the gap between weeks.
     const w=weeks.find(x=>d>=x.sortKey&&d<x.sortKey+7*DAY_MS);
     if(!w)continue;
+    const have=haveByWeek.get(w.sortKey)||{ids:new Set(),titles:new Set()};
+    const tkey=norm(cname)+"|"+bareTitle(v.title);
+    if(have.ids.has(id)||have.titles.has(tkey))continue;
+    have.ids.add(id);have.titles.add(tkey);   // guard the run against itself
     let g=groups.get(w.sortKey);
     if(!g){g={week:w,creators:new Map()};groups.set(w.sortKey,g);}
     let c=g.creators.get(norm(cname));
