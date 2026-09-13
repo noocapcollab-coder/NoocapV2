@@ -11,7 +11,9 @@ const VERSION = process.env.NOTION_DS_VERSION || "2025-09-03";
 
 // Same priority the boards reader (lib/boards.js byName) uses, so we write the very
 // property it reads back as the post date: due date → date → post date.
-const DATE_NAMES = ["due date", "date", "post date"];
+// POST DATE is the column the creator calendars actually run on; several boards also carry
+// an unused DUE DATE, so that one must never win the lookup.
+const DATE_NAMES = ["post date", "due date", "date"];
 
 async function notion(path, token, { method = "GET", body } = {}) {
   const res = await fetch(`${NOTION_API}${path}`, {
