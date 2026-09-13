@@ -354,7 +354,7 @@ const TT={Personal:["#E1F5EE","#0f6e56","Personal"],Sponsor:["#FBEAF0","#993556"
 const REFRESH_MS=20000;
 // Shown next to the sync clock. Bump it with every change so a screenshot says outright
 // which build is live, instead of a fix and a stale cache looking identical from outside.
-const BUILD="0913-g";
+const BUILD="0913-h";
 
 const pretty=(n)=> n ? n.charAt(0).toUpperCase()+n.slice(1).toLowerCase() : n;
 const norm=(s)=> (s||"").toUpperCase().replace(/\s+/g," ").trim();
@@ -1193,7 +1193,15 @@ function openPicker(creatorName){
   let creator=[...w.creators].find(c=>c.name===creatorName);
   if(!creator) creator={name:creatorName,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[]};
   if(!creator.blockId&&!w.blockId){toast("Can't add here in preview — go live to write back.");return;}
-  const scheduled=new Set(creator.items.filter(it=>!state.removed.has(it.blockId)).map(it=>norm(it.title)));
+  // Match on the linked id first and the bracket-stripped title second, so a video already
+  // on the week greys out instead of offering itself for a second time.
+  const schedIds=new Set(),schedTitles=new Set();
+  for(const it of creator.items){
+    if(state.removed.has(it.blockId))continue;
+    if(it.videoId)schedIds.add(idn(it.videoId));
+    const t=bareTitle(it.title); if(t)schedTitles.add(t);
+  }
+  const isSched=(v)=>(v.id&&schedIds.has(idn(v.id)))||schedTitles.has(bareTitle(v.title));
   // Picker offers only videos that still need work. "5- Script Approval" (script with the
   // brand, video not made yet) stays in. "9- Approval" (edited video with the brand) and up
   // are done, so they drop out — same DONE_RANK bar the rest of the dashboard uses.
@@ -1203,7 +1211,7 @@ function openPicker(creatorName){
   const isNormal=["JOSHUA","NUEL","NEUL"].includes(creatorName);
   const m=document.getElementById("modal");
   let rows=cands.map((v,i)=>{
-    const dis=scheduled.has(norm(v.title));const defType=v.type||"Personal";
+    const dis=isSched(v);const defType=v.type||"Personal";
     return `<div class="row ${dis?"dis":""}" data-i="${i}" data-title="${esc(v.title)}" data-type="${esc(defType)}" data-id="${esc(v.id||"")}" data-url="${esc(v.url||"")}">
       <div class="cb"></div><div style="flex:1"><div class="rt">${esc(v.title)}</div>
         <div class="rs">${dis?"already in this week":esc(STAGE_LABEL[v.status]||v.status||"")}</div>
@@ -1274,7 +1282,21 @@ async function submitPicks(creator,isNormal){
   // Keep a newly created column on screen through the cache window until the next load.
   if(added&&!w.creators.some(c=>norm(c.name)===norm(creator.name))) w.creators.push(creator);
   closeOverlays();
-  if(added)toast(added+" added to "+w.label+(failed?` · ${failed} didn't save`:""));
+  // A pick whose video is dated into another week gets placed there, not here. Saying so
+  // out loud is the difference between "it worked" and "it vanished".
+  const wStart=w.sortKey,wEnd=w.sortKey+7*DAY_MS;
+  const strays=picks.filter(p=>{
+    const v=p.videoId?state.pipeline.find(x=>idn(x.id)===idn(p.videoId)):null;
+    const d=v&&v.dueDate?dayMs(v.dueDate):null;
+    return d!=null&&(d<wStart||d>=wEnd);
+  });
+  if(added&&strays.length){
+    const one=strays[0],v=state.pipeline.find(x=>idn(x.id)===idn(one.videoId));
+    const when=v&&v.dueDate?String(v.dueDate).slice(0,10):"another week";
+    toast(strays.length===1?`Added — but ${one.title.slice(0,24)} posts ${when}, so it shows in that week`
+      :`Added — ${strays.length} post outside ${w.label} and show in their own weeks`);
+  }
+  else if(added)toast(added+" added to "+w.label+(failed?` · ${failed} didn't save`:""));
   else if(failed)toast("Notion's briefly rate-limited — give it a minute and try again.");
   // Re-pull FRESH so the just-written videos come back from Notion rather than the stale
   // ~20s KPI cache — reading the cache is what made added videos vanish on the next load.
