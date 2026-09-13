@@ -868,7 +868,15 @@ function renderWeekly(){
       html+=`<div class="carrybar" style="opacity:.6"><div class="ct"><span class="cdotp"></span>${lbl} is up to date with ${curLbl}</div></div>`;
     }
   }
-  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline</span><button id="addclientbtn" class="addclient">+ Add client</button></div><div class="cols">`;
+  // Auto-sync status. Silence used to be ambiguous between "nothing to add" and "a write
+  // failed", so the queue is shown whenever it isn't empty.
+  const sp=buildSyncPlan();
+  const syncBits=[];
+  if(sp.count) syncBits.push(`syncing ${sp.count} new from the boards`);
+  if(state.syncNote) syncBits.push(esc(state.syncNote));
+  const syncTxt=syncBits.length?` <span style="color:var(--accent2)">· ${syncBits.join(" · ")}</span>`:"";
+  const syncBtn=sp.count?`<button id="syncbtn" class="addclient" style="margin-right:8px">Sync ${sp.count} from boards</button>`:"";
+  html+=`<div class="toprow"><span class="s">This week's videos · tap + to pull from the pipeline${syncTxt}</span>${syncBtn}<button id="addclientbtn" class="addclient">+ Add client</button></div><div class="cols">`;
   // Every creator with a REELS board (i.e. present in the pipeline) gets a column, even on
   // weeks where the plan has no section for them yet — including clients added through the
   // dashboard. The missing column's "+ add video" builds the section in Notion on first use.
@@ -955,6 +963,7 @@ function renderWeekly(){
   document.getElementById("wksel").onchange=(e)=>{state.wkIdx=+e.target.value;state.weekPicked=true;renderWeekly();};
   { const cb=document.getElementById("carrybtn"); if(cb) cb.onclick=()=>runCarryover(); }
   { const ac=document.getElementById("addclientbtn"); if(ac) ac.onclick=openAddClient; }
+  { const sb=document.getElementById("syncbtn"); if(sb) sb.onclick=()=>{sb.disabled=true;sb.textContent="Syncing…";runAutoSync();}; }
   root.querySelectorAll(".add").forEach(b=>b.onclick=()=>openPicker(b.dataset.creator));
   root.querySelectorAll(".del").forEach(b=>b.onclick=(e)=>{e.stopPropagation();removeCard(b.dataset.block,b.dataset.title,b.dataset.video);});
   root.querySelectorAll(".schip").forEach(b=>b.onclick=(e)=>{e.stopPropagation();state.openStatus=state.openStatus===b.dataset.block?null:b.dataset.block;state.openDay=null;renderWeekly();});
@@ -1505,7 +1514,13 @@ async function maybeAutoRoll(){
 // after it are ever written to, so history can't be rewritten underneath you. A run is
 // capped, and a video whose write keeps failing is dropped after a few tries rather than
 // being hammered at every twenty seconds.
-const SYNC_MAX_PER_RUN=20;
+// Small batches on purpose. Notion throttles writes hard, and a long run that runs out of
+// budget halfway leaves videos stranded, so each pass takes a few and the next poll continues.
+// Auto-sync writes to Notion, so it stays behind a button until its placement is trusted.
+// Flip this to true to have it run on its own again.
+const SYNC_AUTOWRITE=false;
+const SYNC_MAX_PER_RUN=8;
+const SYNC_MAX_TRIES=6;
 const SYNC_SKIP_KEY="noocap_sync_skip";
 function syncSkip(){try{return new Set(JSON.parse(localStorage.getItem(SYNC_SKIP_KEY)||"[]"));}catch(e){return new Set();}}
 function addSyncSkip(vid){if(!vid)return;const s=syncSkip();s.add(idn(vid));try{localStorage.setItem(SYNC_SKIP_KEY,JSON.stringify([...s].slice(-400)));}catch(e){}}
@@ -1539,7 +1554,7 @@ function buildSyncPlan(){
     if(count>=SYNC_MAX_PER_RUN)break;
     if(!v.id||!v.creator||!namedTitle(v.title))continue;
     const id=idn(v.id);
-    if(skip.has(id)||haveId.has(id)||(tried.get(id)||0)>=3)continue;
+    if(skip.has(id)||haveId.has(id)||(tried.get(id)||0)>=SYNC_MAX_TRIES)continue;
     const cname=pretty(v.creator);
     if(haveTitle.has(norm(cname)+"|"+bareTitle(v.title)))continue;
     const d=dayMs(v.dueDate);if(d==null)continue;
@@ -1570,7 +1585,7 @@ async function runAutoSync(){
   if(!count)return;
   window.__syncing=true;
   const tried=window.__syncTried||(window.__syncTried=new Map());
-  let added=0;
+  let added=0,failed=0;
   try{
     for(const g of plan){
       for(const c of g.creators){
@@ -1586,14 +1601,18 @@ async function runAutoSync(){
           let after=anchors[sec]||anchors.NONE||null;
           if(!after){const h=await addBlock({parentBlockId:blockId,heading:sec});if(h&&h.blockId){after=h.blockId;anchors[sec]=h.blockId;}await csleep(360);}
           for(const it of items){
-            const k=idn(it.videoId);tried.set(k,(tried.get(k)||0)+1);
+            const k=idn(it.videoId);
             const r=await addBlock({parentBlockId:blockId,afterBlockId:after||undefined,title:it.title,note:"",videoUrl:it.videoUrl||"",videoId:it.videoId||"",checked:false});
-            if(r&&r.blockId){after=r.blockId;anchors[sec]=r.blockId;added++;}
+            // Only a write that actually failed counts against the video's attempts. Counting
+            // before the call meant a rate-limited burst could retire a video for the session.
+            if(r&&r.blockId){after=r.blockId;anchors[sec]=r.blockId;added++;tried.delete(k);}
+            else{tried.set(k,(tried.get(k)||0)+1);failed++;}
             await csleep(300);
           }
         }
       }
     }
+    state.syncNote=failed?`${failed} couldn't be written — Notion is throttling, retrying`:"";
     if(added){
       toast(`${added} new video${added===1?"":"s"} synced into ${labels.join(" · ")}`);
       await loadAll(true);
@@ -1601,7 +1620,7 @@ async function runAutoSync(){
   }catch(e){ /* a failed pass just leaves the videos for the next poll */ }
   finally{ window.__syncing=false; }
 }
-function maybeAutoSync(){ runAutoSync(); }
+function maybeAutoSync(){ if(SYNC_AUTOWRITE) runAutoSync(); }
 
 function showScrim(){document.getElementById("scrim").classList.add("show");}
 
