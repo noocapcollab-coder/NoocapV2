@@ -436,6 +436,47 @@ function carryDone(w,it,lv){
 // block stays in Notion and the × on a matched card still clears blocks for good.
 const carryOrphan=(it,lv)=> isCarried(it)&&!lv;
 
+// Post date decides which week a card belongs to. The checkbox still lives wherever it was
+// written on the KPI page, but for display and for every count it's placed in the week its
+// video is actually dated for, so a video planned in one week and dated into the next shows
+// up once, in the week the work lands. A card with no linked video, or a video with no post
+// date, stays in the week its checkbox lives on, which is what keeps hand-typed plans intact.
+// Nothing is written to Notion by this — it's purely how the weeks are read.
+function weekBuckets(){
+  const lk=liveLookup(),byId=liveById();
+  const pmap=new Map();for(const v of state.pipeline){if(v.id)pmap.set(idn(v.id),v);}
+  const weeks=state.weeks;
+  const homeOf=(d)=>weeks.findIndex(x=>d>=x.sortKey&&d<x.sortKey+7*DAY_MS);
+  const out=weeks.map(w=>({w,creators:new Map()}));
+  const slot=(wi,name)=>{
+    let m=out[wi].creators.get(norm(name));
+    if(!m){m={name,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[]};out[wi].creators.set(norm(name),m);}
+    return m;
+  };
+  weeks.forEach((w,wi)=>{
+    for(const c of w.creators){
+      // Writes always go to this week's own section, so the anchors travel with the home slot
+      // even when every one of its cards has moved elsewhere.
+      const home=slot(wi,c.name);
+      home.blockId=c.blockId; home.anchors=c.anchors;
+      for(const it of c.items){
+        const {vid}=resolveItem(lk,byId,c.name,it);
+        const pv=vid?pmap.get(idn(vid)):null;
+        const d=pv&&pv.dueDate?dayMs(pv.dueDate):null;
+        // A date outside every loaded week (far future, or older than the window) leaves the
+        // card where it is rather than dropping it off the plan entirely.
+        const target=d==null?wi:homeOf(d);
+        slot(target<0?wi:target,c.name).items.push(it);
+      }
+    }
+  });
+  return out;
+}
+const bucketFor=(buckets,w)=>{
+  const b=buckets.find(x=>x.w===w)||buckets.find(x=>x.w&&w&&x.w.sortKey===w.sortKey);
+  return b?[...b.creators.values()]:(w?w.creators:[]);
+};
+
 let state={view:"pipeline",pipeline:[],keys:{},weeks:[],wkIdx:0,offline:false,lastOk:0,pipeFilter:null,removed:new Set(),openStatus:null,openDay:null};
 
 async function getJSON(u,opts){const r=await fetch(u,opts);const j=await r.json();if(!j.ok)throw new Error(j.error||("HTTP "+r.status));return j;}
@@ -727,6 +768,8 @@ function renderWeekly(){
   if(!state.weeks.length){root.innerHTML=`<div class="empty">${state.offline?"Can't reach Notion right now — retrying. The weekly plan loads as soon as it reconnects.":"No weekly plan found."}</div>`;return;}
   const w=state.weeks[state.wkIdx]||state.weeks[0];
   const lk=liveLookup();const byId=liveById();
+  // Cards are grouped by the week their video is dated for, not the week their checkbox sits in.
+  const buckets=weekBuckets();const wCreators=bucketFor(buckets,w);
   const live=(wk,c)=>{
     const seen=new Set();
     return c.items.filter(it=>{
@@ -751,7 +794,7 @@ function renderWeekly(){
   const isDone=(cName,it)=>{const {lv}=resolveItem(lk,byId,cName,it);return it.checked||(lv&&lv.rank>=DONE_RANK);};
   // weekly totals — every planned video counts toward the week
   const t={planned:0,shipped:0,aiPlanned:0,aiShipped:0,normalPlanned:0,normalShipped:0,personalPlanned:0,sponsorPlanned:0,personalShipped:0,sponsorShipped:0};
-  for(const c of w.creators){
+  for(const c of wCreators){
     const normal=["JOSHUA","NUEL","NEUL"].includes(c.name);
     for(const it of live(w,c)){
       t.planned++; if(normal)t.normalPlanned++;else t.aiPlanned++;
@@ -768,7 +811,7 @@ function renderWeekly(){
   // roll button always agree. Purely informational and it changes no other count.
   const prevW=state.weeks.filter(x=>x.sortKey<w.sortKey).sort((a,b)=>b.sortKey-a.sortKey)[0]||null;
   let carriedCount=0;
-  if(prevW) for(const c of prevW.creators) for(const it of live(prevW,c)){
+  if(prevW) for(const c of bucketFor(buckets,prevW)) for(const it of live(prevW,c)){
     const {lv}=resolveItem(lk,byId,c.name,it);
     if(!it.checked&&!(lv&&lv.rank>=EDIT_RANK)) carriedCount++;
   }
@@ -776,7 +819,7 @@ function renderWeekly(){
   // every other one. Format comes off the linked video's FORMAT field; an unmarked or
   // unlinked card reads as Short, which is the same default the card tag uses.
   let lfTotal=0,lfShipped=0;
-  for(const c of w.creators){
+  for(const c of wCreators){
     for(const it of live(w,c)){
       const {lv}=resolveItem(lk,byId,c.name,it);
       const f=lv?(lv.format||"Short Form"):"Short Form";
@@ -823,12 +866,12 @@ function renderWeekly(){
   // Every creator with a REELS board (i.e. present in the pipeline) gets a column, even on
   // weeks where the plan has no section for them yet — including clients added through the
   // dashboard. The missing column's "+ add video" builds the section in Notion on first use.
-  const present=new Set([...w.creators].map(c=>norm(c.name)));
+  const present=new Set(wCreators.map(c=>norm(c.name)));
   const pipeHas=new Set(state.pipeline.map(v=>norm(pretty(v.creator))));
   const okBoards=new Set((state.boards||[]).map(b=>norm(pretty(b.creator))));
   const errBoards=new Set((state.boardErrors||[]).map(b=>norm(pretty(b.creator))));
   const roster=new Set([...okBoards, ...errBoards, ...pipeHas]);
-  const cols=[...w.creators];
+  const cols=[...wCreators];
   if(w.blockId) for(const nm of roster){
     if(!present.has(nm)) cols.push({name:nm,blockId:null,anchors:{PERSONAL:null,SPONSOR:null,NONE:null},items:[],planned:0,shipped:0,__missing:true,__noboard:(errBoards.has(nm)&&!okBoards.has(nm)&&!pipeHas.has(nm))});
   }
@@ -1016,7 +1059,7 @@ function renderCalendar(){
   const todayIso=isoDay(new Date());
   const ov=calOverrides();
   const buckets={};days.forEach(d=>buckets[d.iso]=[]);const tray=[];
-  const creators=[...w.creators].sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
+  const creators=bucketFor(weekBuckets(),w).slice().sort((a,b)=>orderIdx(a.name)-orderIdx(b.name));
   for(const c of creators){
     for(const it of live(c)){
       const {title,lv,vid}=resolveItem(lk,byId,c.name,it);
@@ -1319,6 +1362,11 @@ function buildCarryPlan(){
       // board will never resolve, so rolling it again just walks it forward forever. It stays
       // where it is and someone can clear it by hand.
       if(isCarried(it)&&!lv)continue;
+      // A video with a post date is already placed in whichever week that date falls in, so
+      // rolling it would just make a second card. The roll now only handles undated work.
+      const pvd=vid?pmap.get(idn(vid)):null;
+      const dd=pvd&&pvd.dueDate?dayMs(pvd.dueDate):null;
+      if(dd!=null&&state.weeks.some(x=>dd>=x.sortKey&&dd<x.sortKey+7*DAY_MS))continue;
       // Write the stripped title so the reader doesn't keep peeling the same brackets back
       // into the note and growing it on every pass.
       const title=stripParens(dt||it.title);
